@@ -38,3 +38,6 @@ __screenshots__/
 # Vite
 *.timestamp-*-*.mjs
 dist-preview
+
+# Mock API data (npm run mock:reset)
+.mock-db.json

@@ -1,23 +1,42 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { Plus, Pencil, Trash2, Download, Upload, Crown } from 'lucide-vue-next'
 import BaseModal from '@/components/ui/BaseModal.vue'
+import { api } from '@/api'
 import { useSettingsStore } from '@/stores/settings'
 import { useAuthStore } from '@/stores/auth'
-import { useCatalogStore } from '@/stores/catalog'
-import { useOrdersStore } from '@/stores/orders'
-import { useShiftStore } from '@/stores/shift'
+import { useAppStore } from '@/stores/app'
 import { useToastStore } from '@/stores/toast'
-import { clearAllStorage, readStorage, writeStorage } from '@/composables/persisted'
 import { canDownload } from '@/utils/env'
-import type { Role, Staff } from '@/types'
+import { downloadJson } from '@/utils/download'
+import { clone } from '@/utils/pos'
+import type { ResetScope, Role, Settings, StaffPublic } from '@/types'
 
 const settings = useSettingsStore()
 const auth = useAuthStore()
-const catalog = useCatalogStore()
-const orders = useOrdersStore()
-const shift = useShiftStore()
+const app = useAppStore()
 const toast = useToastStore()
+
+onMounted(() => auth.loadStaff())
+
+// Store settings are edited in a copy and saved to the server with one click.
+const form = ref<Settings>(clone(settings.s))
+watch(
+  () => settings.s,
+  (s) => (form.value = clone(s)),
+)
+const dirty = computed(() => JSON.stringify(form.value) !== JSON.stringify(settings.s))
+const saving = ref(false)
+
+async function saveSettings() {
+  saving.value = true
+  try {
+    await settings.save(form.value)
+    toast.show('Settings saved', 'success')
+  } finally {
+    saving.value = false
+  }
+}
 
 const currencies = [
   { code: 'USD', locale: 'en-US', decimals: 2, label: 'US Dollar ($)' },
@@ -30,10 +49,23 @@ const currencies = [
 function setCurrency(code: string) {
   const c = currencies.find((x) => x.code === code)
   if (!c) return
-  settings.s.currency = c.code
-  settings.s.locale = c.locale
-  settings.s.decimals = c.decimals
+  form.value.currency = c.code
+  form.value.locale = c.locale
+  form.value.decimals = c.decimals
 }
+
+const preview = computed(() => {
+  try {
+    return new Intl.NumberFormat(form.value.locale, {
+      style: 'currency',
+      currency: form.value.currency,
+      minimumFractionDigits: form.value.decimals,
+      maximumFractionDigits: form.value.decimals,
+    }).format(12345.5)
+  } catch {
+    return '—'
+  }
+})
 
 // Staff
 const staffOpen = ref(false)
@@ -44,15 +76,22 @@ const staffForm = ref<{ id?: string; name: string; pin: string; role: Role }>({
 })
 const staffError = ref('')
 
-function editStaff(u: Staff | null) {
-  staffForm.value = u ? { ...u } : { name: '', pin: '', role: 'cashier' }
+function editStaff(u: StaffPublic | null) {
+  // PINs are never sent by the server; leave the field empty to keep the current PIN.
+  staffForm.value = u ? { ...u, pin: '' } : { name: '', pin: '', role: 'cashier' }
   staffError.value = ''
   staffOpen.value = true
 }
 
-function saveStaff() {
+async function saveStaff() {
   if (!staffForm.value.name.trim()) return (staffError.value = 'Name is required')
-  const err = auth.saveStaff({ ...staffForm.value, name: staffForm.value.name.trim() })
+  if (!staffForm.value.id && !staffForm.value.pin) return (staffError.value = 'Enter a PIN')
+  const { pin, ...rest } = staffForm.value
+  const err = await auth.saveStaff({
+    ...rest,
+    name: rest.name.trim(),
+    ...(pin ? { pin } : {}),
+  })
   if (err) staffError.value = err
   else {
     staffOpen.value = false
@@ -60,87 +99,64 @@ function saveStaff() {
   }
 }
 
-function removeStaff() {
+async function removeStaff() {
   if (!staffForm.value.id) return
-  const err = auth.removeStaff(staffForm.value.id)
+  const err = await auth.removeStaff(staffForm.value.id)
   if (err) staffError.value = err
   else staffOpen.value = false
 }
 
 // Data
-const confirm = ref<null | 'sales' | 'demo' | 'factory'>(null)
-const KEYS = [
-  'settings',
-  'staff',
-  'categories',
-  'products',
-  'stock-moves',
-  'customers',
-  'orders',
-  'shifts',
-  'held',
-]
+const confirm = ref<null | ResetScope>(null)
 
-function exportBackup() {
-  if (!canDownload) return
-  const data = Object.fromEntries(KEYS.map((k) => [k, readStorage(k)]))
-  const blob = new Blob(
-    [JSON.stringify({ app: 'sun-pos', version: 1, at: Date.now(), data }, null, 2)],
-    { type: 'application/json' },
-  )
-  const a = document.createElement('a')
-  a.href = URL.createObjectURL(blob)
-  a.download = `sun-pos-backup-${new Date().toISOString().slice(0, 10)}.json`
-  a.click()
-  URL.revokeObjectURL(a.href)
+async function exportBackup() {
+  const backup = await api.backup.export()
+  downloadJson(`sun-pos-backup-${new Date().toISOString().slice(0, 10)}.json`, backup)
 }
 
 async function importBackup(e: Event) {
-  const file = (e.target as HTMLInputElement).files?.[0]
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
   if (!file) return
+  let json: unknown
   try {
-    const json = JSON.parse(await file.text())
-    if (json.app !== 'sun-pos' || !json.data) throw new Error('Not a Sun POS backup')
-    for (const k of KEYS)
-      if (json.data[k] !== undefined && json.data[k] !== null) writeStorage(k, json.data[k])
-    location.reload()
-  } catch (err) {
-    toast.show(err instanceof Error ? err.message : 'Import failed', 'error')
+    json = JSON.parse(await file.text())
+  } catch {
+    return toast.show('That file is not valid JSON', 'error')
   }
+  await api.backup.restore(json)
+  await app.load()
+  toast.show('Backup restored', 'success')
 }
 
-function runConfirm() {
-  if (confirm.value === 'sales') {
-    orders.clearAll()
-    shift.reset()
-    catalog.stockMoves = []
-    toast.show('Sales history cleared', 'success')
-  } else if (confirm.value === 'demo') {
-    orders.loadDemo()
-    toast.show('Demo sales loaded', 'success')
-  } else if (confirm.value === 'factory') {
-    clearAllStorage()
-    location.reload()
-    return
-  }
+async function runConfirm() {
+  const scope = confirm.value
+  if (!scope) return
+  await api.admin.reset(scope)
   confirm.value = null
+  await Promise.all([app.load(), auth.loadStaff()])
+  toast.show(confirmText[scope].done, 'success')
 }
 
 const confirmText = {
   sales: {
     title: 'Clear all sales?',
-    body: 'Deletes every order, shift and stock movement. Products, customers and settings are kept.',
+    body: 'Deletes every order, shift, held order and stock movement. Products, customers and settings are kept.',
     action: 'Clear sales',
+    done: 'Sales history cleared',
   },
   demo: {
     title: 'Replace sales with demo data?',
-    body: 'Current orders are replaced with 14 days of sample sales.',
+    body: 'Current orders and shifts are replaced with 14 days of sample sales.',
     action: 'Load demo sales',
+    done: 'Demo sales loaded',
   },
-  factory: {
+  all: {
     title: 'Reset everything?',
-    body: 'All data on this device is erased and the app starts fresh with the sample menu.',
+    body: 'All data is erased and the system starts again with the sample menu, staff and customers.',
     action: 'Reset everything',
+    done: 'Everything was reset',
   },
 }
 </script>
@@ -154,19 +170,19 @@ const confirmText = {
       <div class="grid gap-3 sm:grid-cols-2">
         <div class="sm:col-span-2">
           <label class="label" for="s-name">Store name</label
-          ><input id="s-name" v-model="settings.s.storeName" class="input" />
+          ><input id="s-name" v-model="form.storeName" class="input" />
         </div>
         <div>
           <label class="label" for="s-addr">Address</label
-          ><input id="s-addr" v-model="settings.s.address" class="input" />
+          ><input id="s-addr" v-model="form.address" class="input" />
         </div>
         <div>
           <label class="label" for="s-phone">Phone</label
-          ><input id="s-phone" v-model="settings.s.phone" class="input" />
+          ><input id="s-phone" v-model="form.phone" class="input" />
         </div>
         <div class="sm:col-span-2">
           <label class="label" for="s-foot">Receipt footer</label
-          ><input id="s-foot" v-model="settings.s.receiptFooter" class="input" />
+          ><input id="s-foot" v-model="form.receiptFooter" class="input" />
         </div>
       </div>
     </section>
@@ -178,26 +194,25 @@ const confirmText = {
           <label class="label" for="s-cur">Currency</label>
           <select
             id="s-cur"
-            :value="settings.s.currency"
+            :value="form.currency"
             class="input"
             @change="setCurrency(($event.target as HTMLSelectElement).value)"
           >
             <option v-for="c in currencies" :key="c.code" :value="c.code">{{ c.label }}</option>
           </select>
           <p class="mt-1 text-xs text-ink-muted">
-            Preview: {{ settings.money(12345.5) }} · Changing currency does not convert existing
-            prices.
+            Preview: {{ preview }} · Changing currency does not convert existing prices.
           </p>
         </div>
         <div>
           <label class="label" for="s-taxl">Tax name</label
-          ><input id="s-taxl" v-model="settings.s.taxLabel" class="input" />
+          ><input id="s-taxl" v-model="form.taxLabel" class="input" />
         </div>
         <div>
           <label class="label" for="s-tax">Tax rate (%)</label
           ><input
             id="s-tax"
-            v-model.number="settings.s.taxRate"
+            v-model.number="form.taxRate"
             type="number"
             min="0"
             step="any"
@@ -208,7 +223,7 @@ const confirmText = {
           <label class="label" for="s-svc">Service charge (%)</label
           ><input
             id="s-svc"
-            v-model.number="settings.s.serviceRate"
+            v-model.number="form.serviceRate"
             type="number"
             min="0"
             step="any"
@@ -222,14 +237,14 @@ const confirmText = {
       <h2 class="font-semibold">Sell screen & loyalty</h2>
       <div class="grid gap-3 sm:grid-cols-3">
         <div>
-          <span class="label">Theme</span>
+          <span class="label">Theme (this device)</span>
           <div class="segmented">
             <button
               v-for="t in ['light', 'dark', 'system'] as const"
               :key="t"
               class="capitalize"
-              :aria-pressed="settings.s.theme === t"
-              @click="settings.s.theme = t"
+              :aria-pressed="settings.theme === t"
+              @click="settings.theme = t"
             >
               {{ t }}
             </button>
@@ -239,17 +254,17 @@ const confirmText = {
           <label class="label" for="s-top">Top sellers period (days)</label>
           <input
             id="s-top"
-            v-model.number="settings.s.topSellerDays"
+            v-model.number="form.topSellerDays"
             type="number"
             min="1"
             class="input"
           />
         </div>
         <div>
-          <label class="label" for="s-pts">Loyalty points per 1 {{ settings.s.currency }}</label>
+          <label class="label" for="s-pts">Loyalty points per 1 {{ form.currency }}</label>
           <input
             id="s-pts"
-            v-model.number="settings.s.pointsPerUnit"
+            v-model.number="form.pointsPerUnit"
             type="number"
             min="0"
             step="any"
@@ -258,6 +273,17 @@ const confirmText = {
         </div>
       </div>
     </section>
+
+    <div
+      v-if="dirty"
+      class="card sticky bottom-20 z-10 flex items-center gap-3 border-primary/40 p-3 shadow-lg md:bottom-4"
+    >
+      <p class="flex-1 text-sm">You have unsaved changes to the store settings.</p>
+      <button class="btn btn-ghost btn-sm" @click="form = clone(settings.s)">Discard</button>
+      <button class="btn btn-primary btn-sm" :disabled="saving" @click="saveSettings">
+        {{ saving ? 'Saving…' : 'Save settings' }}
+      </button>
+    </div>
 
     <section class="card p-5">
       <div class="mb-3 flex items-center">
@@ -298,7 +324,8 @@ const confirmText = {
     <section class="card space-y-3 p-5">
       <h2 class="font-semibold">Data</h2>
       <p class="text-sm text-ink-muted">
-        Data is stored in this browser. Export a backup regularly, or to move to another device.
+        Export a backup regularly, or to move the data to another server. Restoring a backup
+        replaces the current data.
       </p>
       <div class="flex flex-wrap gap-2">
         <button v-if="canDownload" class="btn btn-outline" @click="exportBackup">
@@ -317,7 +344,7 @@ const confirmText = {
         <button class="btn btn-danger btn-sm" @click="confirm = 'sales'">
           Clear sales history
         </button>
-        <button class="btn btn-danger btn-sm" @click="confirm = 'factory'">Reset everything</button>
+        <button class="btn btn-danger btn-sm" @click="confirm = 'all'">Reset everything</button>
       </div>
     </section>
 
@@ -328,7 +355,9 @@ const confirmText = {
           ><input id="st-name" v-model="staffForm.name" class="input" />
         </div>
         <div>
-          <label class="label" for="st-pin">PIN (4–6 digits)</label
+          <label class="label" for="st-pin">{{
+            staffForm.id ? 'New PIN (leave empty to keep)' : 'PIN (4–6 digits)'
+          }}</label
           ><input
             id="st-pin"
             v-model="staffForm.pin"

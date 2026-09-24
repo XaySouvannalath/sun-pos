@@ -12,8 +12,8 @@ const settings = useSettingsStore()
 const time = (t: number) =>
   new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
-function resume(id: string) {
-  cart.resume(id)
+async function resume(id: string) {
+  await cart.resume(id)
   open.value = false
 }
 </script>

@@ -1,16 +1,20 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { Search, Printer, RotateCcw, Download } from 'lucide-vue-next'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import OrderReceipt from '@/components/OrderReceipt.vue'
+import { api } from '@/api'
 import { useOrdersStore } from '@/stores/orders'
 import { useSettingsStore } from '@/stores/settings'
 import { useAuthStore } from '@/stores/auth'
 import { useCustomersStore } from '@/stores/customers'
 import { useToastStore } from '@/stores/toast'
-import { downloadCsv, startOfDay } from '@/utils/pos'
+import { startOfDay } from '@/utils/pos'
+import { downloadCsv } from '@/utils/download'
 import { canDownload, canPrint } from '@/utils/env'
 import type { Order } from '@/types'
+
+const PAGE = 50
 
 const orders = useOrdersStore()
 const settings = useSettingsStore()
@@ -21,46 +25,67 @@ const toast = useToastStore()
 const q = ref('')
 const status = ref<'all' | 'completed' | 'refunded'>('all')
 const range = ref<'today' | '7' | '30' | 'all'>('today')
-const selectedId = ref<string | null>(null)
+const selected = ref<Order | null>(null)
 const refundOpen = ref(false)
 const refundReason = ref('')
 const restock = ref(true)
-const limit = ref(50)
+const loading = ref(false)
 
-const filtered = computed(() => {
-  const since =
+// The server filters and pages the orders; this view shows what has been loaded so far.
+const filtered = ref<Order[]>([])
+const total = ref(0)
+
+function filters() {
+  const from =
     range.value === 'today'
       ? startOfDay(Date.now())
       : range.value === 'all'
-        ? 0
+        ? undefined
         : Date.now() - Number(range.value) * 86400000
-  const s = q.value.trim().toLowerCase()
-  return orders.orders.filter((o) => {
-    if (o.createdAt < since) return false
-    if (status.value !== 'all' && o.status !== status.value) return false
-    if (!s) return true
-    const cust = o.customerId ? (customers.byId.get(o.customerId)?.name ?? '') : ''
-    return (
-      String(o.number) === s.replace('#', '') ||
-      o.table.toLowerCase() === s ||
-      cust.toLowerCase().includes(s) ||
-      o.staffName.toLowerCase().includes(s) ||
-      o.lines.some((l) => l.name.toLowerCase().includes(s))
-    )
-  })
-})
+  return {
+    from,
+    status: status.value === 'all' ? undefined : status.value,
+    q: q.value.trim() || undefined,
+  }
+}
 
-const selected = computed(() => (selectedId.value ? orders.byId.get(selectedId.value) : undefined))
-const detailOpen = computed({
-  get: () => !!selected.value,
-  set: (v) => {
-    if (!v) selectedId.value = null
-  },
-})
+let seq = 0
+async function load(append = false) {
+  const mine = ++seq
+  loading.value = true
+  try {
+    const page = await api.orders.list({
+      ...filters(),
+      limit: PAGE,
+      offset: append ? filtered.value.length : 0,
+    })
+    if (mine !== seq) return // a newer search already replaced this one
+    filtered.value = append ? [...filtered.value, ...page.items] : page.items
+    total.value = page.total
+  } finally {
+    if (mine === seq) loading.value = false
+  }
+}
 
+let timer: ReturnType<typeof setTimeout> | undefined
+watch(q, () => {
+  clearTimeout(timer)
+  timer = setTimeout(() => load(), 250)
+})
+watch([status, range], () => load())
+onMounted(() => load())
+
+const allLoaded = computed(() => filtered.value.length >= total.value)
 const totalShown = computed(() =>
   filtered.value.filter((o) => o.status === 'completed').reduce((s, o) => s + o.total, 0),
 )
+
+const detailOpen = computed({
+  get: () => !!selected.value,
+  set: (v) => {
+    if (!v) selected.value = null
+  },
+})
 
 const methodLabel = { cash: 'Cash', card: 'Card', qr: 'QR' }
 const typeLabel = { 'dine-in': 'Dine in', takeaway: 'Takeaway', delivery: 'Delivery' }
@@ -74,15 +99,25 @@ const fmtTime = (t: number) =>
 
 const print = () => window.print()
 
-function doRefund() {
+async function doRefund() {
   if (!selected.value) return
-  orders.refund(selected.value.id, refundReason.value.trim(), restock.value)
-  toast.show(`Order #${selected.value.number} refunded`, 'success')
+  const updated = await orders.refund(selected.value.id, refundReason.value.trim(), restock.value)
+  toast.show(`Order #${updated.number} refunded`, 'success')
+  selected.value = updated
+  const i = filtered.value.findIndex((o) => o.id === updated.id)
+  if (i >= 0) filtered.value[i] = updated
   refundOpen.value = false
   refundReason.value = ''
 }
 
-function exportCsv() {
+async function exportCsv() {
+  // Fetch every matching order, not just the loaded page.
+  const all: Order[] = []
+  for (;;) {
+    const page = await api.orders.list({ ...filters(), limit: 500, offset: all.length })
+    all.push(...page.items)
+    if (!page.items.length || all.length >= page.total) break
+  }
   const rows: (string | number)[][] = [
     [
       'Number',
@@ -101,7 +136,7 @@ function exportCsv() {
       'Status',
     ],
   ]
-  for (const o of filtered.value as Order[])
+  for (const o of all)
     rows.push([
       o.number,
       new Date(o.createdAt).toISOString(),
@@ -166,8 +201,9 @@ function exportCsv() {
     </div>
 
     <p class="text-sm text-ink-muted">
-      {{ filtered.length }} orders · net sales
-      <b class="text-ink">{{ settings.money(totalShown) }}</b>
+      {{ total }} orders<template v-if="allLoaded">
+        · net sales <b class="text-ink">{{ settings.money(totalShown) }}</b></template
+      ><span v-if="loading"> · loading…</span>
     </p>
 
     <div class="card overflow-x-auto">
@@ -185,10 +221,10 @@ function exportCsv() {
         </thead>
         <tbody>
           <tr
-            v-for="o in filtered.slice(0, limit)"
+            v-for="o in filtered"
             :key="o.id"
             class="cursor-pointer hover:bg-surface-2/60"
-            @click="selectedId = o.id"
+            @click="selected = o"
           >
             <td class="font-semibold">#{{ o.number }}</td>
             <td class="whitespace-nowrap text-ink-muted">{{ fmtTime(o.createdAt) }}</td>
@@ -215,14 +251,14 @@ function exportCsv() {
               {{ settings.money(o.total) }}
             </td>
           </tr>
-          <tr v-if="!filtered.length">
+          <tr v-if="!filtered.length && !loading">
             <td colspan="7" class="py-12 text-center text-ink-muted">No orders found.</td>
           </tr>
         </tbody>
       </table>
     </div>
-    <div v-if="filtered.length > limit" class="text-center">
-      <button class="btn btn-soft" @click="limit += 50">Show more</button>
+    <div v-if="!allLoaded" class="text-center">
+      <button class="btn btn-soft" :disabled="loading" @click="load(true)">Show more</button>
     </div>
 
     <BaseModal v-model="detailOpen" :title="selected ? `Order #${selected.number}` : ''" size="md">

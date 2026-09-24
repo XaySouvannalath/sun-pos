@@ -59,11 +59,11 @@ function edit(i: number) {
   editOpen.value = true
 }
 
-function hold() {
+async function hold() {
   const label = cart.state.table
     ? `Table ${cart.state.table}`
     : customer.value?.name || `Order ${cart.held.length + 1}`
-  cart.hold(label)
+  await cart.hold(label)
   toast.show(`Held: ${label}`, 'success')
 }
 

@@ -172,6 +172,7 @@ export interface Shift {
   note: string
 }
 
+/** Per-device display preference (not part of the store settings). */
 export type ThemeMode = 'light' | 'dark' | 'system'
 
 export interface Settings {
@@ -185,8 +186,144 @@ export interface Settings {
   taxRate: number
   serviceRate: number
   receiptFooter: string
-  theme: ThemeMode
   /** Loyalty points earned per 1 unit of currency spent. */
   pointsPerUnit: number
   topSellerDays: number
+}
+
+// ---------------------------------------------------------------------------
+// API types (request and response bodies). See docs/API.md.
+// ---------------------------------------------------------------------------
+
+/** A staff member as returned by the API: PINs are never sent to clients. */
+export type StaffPublic = Omit<Staff, 'pin'>
+
+export interface StaffInput {
+  name: string
+  role: Role
+  /** Required when creating. When updating, leave empty to keep the current PIN. */
+  pin?: string
+}
+
+export interface LoginResponse {
+  token: string
+  user: StaffPublic
+}
+
+export interface CheckoutLine {
+  productId: string
+  qty: number
+  options: { group: string; name: string }[]
+  note: string
+  discountPct: number
+}
+
+export interface CheckoutRequest {
+  /** Client-generated id. Sending the same id twice returns the first order instead of charging again. */
+  id?: string
+  orderType: OrderType
+  table: string
+  note: string
+  customerId: string | null
+  orderDiscount: Discount
+  lines: CheckoutLine[]
+  payments: Payment[]
+}
+
+export type HeldOrderInput = Omit<HeldOrder, 'id' | 'heldAt'>
+
+export type CustomerInput = Pick<Customer, 'name' | 'phone' | 'email' | 'note'>
+
+export interface StockAdjustment {
+  productId: string
+  delta: number
+  reason: string
+}
+
+export interface ShiftSummary {
+  orders: number
+  refunds: number
+  gross: number
+  refunded: number
+  byMethod: Record<PaymentMethod, number>
+  cashSales: number
+  cashRefunds: number
+  cashIn: number
+  cashOut: number
+  expectedCash: number
+}
+
+export interface ShiftWithSummary {
+  shift: Shift
+  summary: ShiftSummary
+}
+
+export interface TopSeller {
+  product: Product
+  qty: number
+  revenue: number
+}
+
+export interface Page<T> {
+  items: T[]
+  total: number
+}
+
+export interface ReportSummary {
+  net: number
+  orders: number
+  avg: number
+  items: number
+  tax: number
+  discounts: number
+  profit: number
+  margin: number
+  refunds: number
+  refundCount: number
+}
+
+export interface SalesBucket {
+  /** Start of the bucket (epoch ms). */
+  start: number
+  /** Hour of day ("7") for hourly buckets, local date ("2026-09-24") for daily ones. */
+  label: string
+  value: number
+  count: number
+}
+
+export interface ProductSales {
+  productId: string
+  name: string
+  emoji: string
+  qty: number
+  revenue: number
+}
+
+export type BreakdownBy = 'payment' | 'category' | 'orderType' | 'staff'
+
+export interface BreakdownRow {
+  key: string
+  value: number
+  pct: number
+}
+
+export type ResetScope = 'sales' | 'demo' | 'all'
+
+export interface DbData {
+  settings: Settings
+  staff: Staff[]
+  categories: Category[]
+  products: Product[]
+  stockMoves: StockMove[]
+  customers: Customer[]
+  orders: Order[]
+  shifts: Shift[]
+  held: HeldOrder[]
+}
+
+export interface BackupFile {
+  app: 'sun-pos'
+  version: 2
+  at: number
+  data: DbData
 }

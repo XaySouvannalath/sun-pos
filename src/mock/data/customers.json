@@ -1,0 +1,35 @@
+[
+  {
+    "id": "cus-1",
+    "name": "Somchai Phommachanh",
+    "phone": "+856 20 5555 1234",
+    "email": "somchai@example.com",
+    "note": "Prefers oat milk",
+    "points": 42,
+    "totalSpent": 186.5,
+    "visits": 23,
+    "createdAt": 1785084960726
+  },
+  {
+    "id": "cus-2",
+    "name": "Noy Keomany",
+    "phone": "+856 20 7777 8899",
+    "email": "",
+    "note": "",
+    "points": 18,
+    "totalSpent": 74.25,
+    "visits": 9,
+    "createdAt": 1786380960726
+  },
+  {
+    "id": "cus-3",
+    "name": "Anna Schmidt",
+    "phone": "+49 151 2345678",
+    "email": "anna@example.com",
+    "note": "Allergic to nuts",
+    "points": 7,
+    "totalSpent": 31.9,
+    "visits": 3,
+    "createdAt": 1787676960726
+  }
+]

@@ -1,0 +1,32 @@
+[
+  {
+    "id": "cat-coffee",
+    "name": "Coffee",
+    "tint": "sand"
+  },
+  {
+    "id": "cat-tea",
+    "name": "Tea",
+    "tint": "sage"
+  },
+  {
+    "id": "cat-smoothie",
+    "name": "Smoothies",
+    "tint": "rose"
+  },
+  {
+    "id": "cat-food",
+    "name": "Food",
+    "tint": "amber"
+  },
+  {
+    "id": "cat-bakery",
+    "name": "Bakery",
+    "tint": "lilac"
+  },
+  {
+    "id": "cat-dessert",
+    "name": "Desserts",
+    "tint": "sky"
+  }
+]

@@ -1,60 +1,100 @@
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import { persisted } from '@/composables/persisted'
-import { seedStaff } from '@/data/seed'
-import { clone, uid } from '@/utils/pos'
-import type { Role, Staff } from '@/types'
+import { ApiError, api, hasToken, setToken } from '@/api'
+import { useSettingsStore } from './settings'
+import type { Role, StaffInput, StaffPublic } from '@/types'
 
 export const useAuthStore = defineStore('auth', () => {
-  const staff = persisted<Staff[]>('staff', () => clone(seedStaff))
-  // Session storage: a page refresh keeps you signed in, a closed tab locks the till.
-  const currentId = persisted<string | null>('session-user', () => null, 'session')
-
-  const user = computed(() => staff.value.find((u) => u.id === currentId.value) ?? null)
+  const user = ref<StaffPublic | null>(null)
   const isAdmin = computed(() => user.value?.role === 'admin')
+  const staff = ref<StaffPublic[]>([])
 
-  function login(pin: string): boolean {
-    const found = staff.value.find((u) => u.pin === pin)
-    if (!found) return false
-    currentId.value = found.id
-    return true
-  }
+  let ready: Promise<void> | null = null
 
-  function logout() {
-    currentId.value = null
-  }
-
-  function saveStaff(data: Omit<Staff, 'id'> & { id?: string }): string | null {
-    if (!/^\d{4,6}$/.test(data.pin)) return 'PIN must be 4–6 digits'
-    if (staff.value.some((u) => u.pin === data.pin && u.id !== data.id))
-      return 'That PIN is already used'
-    if (data.id) {
-      const existing = staff.value.find((u) => u.id === data.id)
-      if (existing) {
-        if (existing.role === 'admin' && data.role !== 'admin' && adminCount() <= 1)
-          return 'At least one manager is required'
-        Object.assign(existing, data)
+  /** Loads the store settings and restores a saved session. Runs once. */
+  function init() {
+    ready ??= (async () => {
+      await useSettingsStore()
+        .load()
+        .catch(() => {})
+      if (!hasToken()) return
+      try {
+        user.value = await api.auth.me()
+      } catch {
+        setToken(null)
       }
-    } else {
-      staff.value.push({ ...data, id: uid() })
+    })()
+    return ready
+  }
+
+  /** Returns false for a wrong PIN; other failures (e.g. no connection) throw. */
+  async function login(pin: string): Promise<boolean> {
+    try {
+      const res = await api.auth.login(pin)
+      setToken(res.token)
+      user.value = res.user
+      return true
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) return false
+      throw e
     }
-    return null
   }
 
-  function adminCount() {
-    return staff.value.filter((u) => u.role === 'admin').length
+  /** Forget the session locally (e.g. after the server rejects the token). */
+  function clear() {
+    setToken(null)
+    user.value = null
   }
 
-  function removeStaff(id: string): string | null {
-    const u = staff.value.find((x) => x.id === id)
-    if (!u) return null
-    if (u.id === currentId.value) return 'You cannot remove yourself'
-    if (u.role === 'admin' && adminCount() <= 1) return 'At least one manager is required'
-    staff.value = staff.value.filter((x) => x.id !== id)
-    return null
+  async function logout() {
+    await api.auth.logout().catch(() => {})
+    clear()
+  }
+
+  async function loadStaff() {
+    staff.value = await api.staff.list()
+  }
+
+  /** Creates or updates a staff member. Returns an error message, or null on success. */
+  async function saveStaff(data: StaffInput & { id?: string }): Promise<string | null> {
+    try {
+      const { id, ...body } = data
+      if (id) {
+        const saved = await api.staff.update(id, body)
+        if (saved.id === user.value?.id) user.value = saved
+      } else await api.staff.create(body)
+      await loadStaff()
+      return null
+    } catch (e) {
+      if (e instanceof ApiError) return e.message
+      throw e
+    }
+  }
+
+  async function removeStaff(id: string): Promise<string | null> {
+    try {
+      await api.staff.remove(id)
+      await loadStaff()
+      return null
+    } catch (e) {
+      if (e instanceof ApiError) return e.message
+      throw e
+    }
   }
 
   const roleLabel = (r: Role) => (r === 'admin' ? 'Manager' : 'Cashier')
 
-  return { staff, user, isAdmin, login, logout, saveStaff, removeStaff, roleLabel }
+  return {
+    user,
+    isAdmin,
+    staff,
+    init,
+    login,
+    logout,
+    clear,
+    loadStaff,
+    saveStaff,
+    removeStaff,
+    roleLabel,
+  }
 })

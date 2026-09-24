@@ -1,15 +1,13 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { Search, TriangleAlert, PackagePlus } from 'lucide-vue-next'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import { useCatalogStore } from '@/stores/catalog'
-import { useAuthStore } from '@/stores/auth'
 import { useSettingsStore } from '@/stores/settings'
 import { useToastStore } from '@/stores/toast'
 import type { Product } from '@/types'
 
 const catalog = useCatalogStore()
-const auth = useAuthStore()
 const settings = useSettingsStore()
 const toast = useToastStore()
 
@@ -60,11 +58,15 @@ const delta = computed(() => {
   return mode.value === 'add' ? n : mode.value === 'remove' ? -n : n - p.stock
 })
 
-function save() {
+// Stock changes with every sale, so refresh when the page opens.
+onMounted(() => Promise.all([catalog.refreshProducts(), catalog.loadMoves(40)]))
+
+async function save() {
   const p = adjusting.value
-  if (!p || delta.value === 0) return
-  catalog.adjustStock(p.id, delta.value, reason.value, auth.user?.name ?? '')
-  toast.show(`${p.name}: ${delta.value > 0 ? '+' : ''}${delta.value}`, 'success')
+  const d = delta.value
+  if (!p || d === 0) return
+  await catalog.adjustStock(p.id, d, reason.value)
+  toast.show(`${p.name}: ${d > 0 ? '+' : ''}${d}`, 'success')
   adjusting.value = null
 }
 

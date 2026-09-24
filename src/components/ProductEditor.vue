@@ -61,7 +61,10 @@ function addGroup() {
   })
 }
 
-function save() {
+const busy = ref(false)
+
+async function save() {
+  if (busy.value) return
   const p = form.value
   if (!p.name.trim()) return
   p.name = p.name.trim()
@@ -78,13 +81,18 @@ function save() {
         .map((c) => ({ name: c.name.trim(), price: Number(c.price) || 0 })),
     }))
     .filter((g) => g.name && g.choices.length)
-  catalog.saveProduct(p)
-  emit('saved', p)
-  open.value = false
+  busy.value = true
+  try {
+    const saved = await catalog.saveProduct(p)
+    emit('saved', saved)
+    open.value = false
+  } finally {
+    busy.value = false
+  }
 }
 
-function remove() {
-  catalog.removeProduct(form.value.id)
+async function remove() {
+  await catalog.removeProduct(form.value.id)
   confirmDelete.value = false
   open.value = false
   emit('deleted')
@@ -279,9 +287,9 @@ function remove() {
         type="submit"
         form="product-form"
         class="btn btn-primary"
-        :disabled="!form.name.trim()"
+        :disabled="!form.name.trim() || busy"
       >
-        Save product
+        {{ busy ? 'Saving…' : 'Save product' }}
       </button>
     </template>
 

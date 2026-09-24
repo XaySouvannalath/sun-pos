@@ -61,11 +61,18 @@ function press(k: string) {
   else entry.value += k
 }
 
-function complete() {
-  if (remaining.value > 0) return
-  const order = cart.checkout(payments.value)
-  open.value = false
-  emit('paid', order)
+const busy = ref(false)
+
+async function complete() {
+  if (remaining.value > 0 || busy.value) return
+  busy.value = true
+  try {
+    const order = await cart.checkout(payments.value)
+    open.value = false
+    emit('paid', order)
+  } finally {
+    busy.value = false
+  }
 }
 
 const keys = computed(() => [
@@ -200,8 +207,12 @@ const keys = computed(() => [
 
     <template #footer>
       <button class="btn btn-soft" @click="open = false">Cancel</button>
-      <button class="btn btn-primary btn-lg flex-1" :disabled="remaining > 0" @click="complete">
-        Complete sale
+      <button
+        class="btn btn-primary btn-lg flex-1"
+        :disabled="remaining > 0 || busy"
+        @click="complete"
+      >
+        {{ busy ? 'Saving…' : 'Complete sale' }}
       </button>
     </template>
   </BaseModal>

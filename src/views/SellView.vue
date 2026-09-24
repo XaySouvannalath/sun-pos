@@ -99,8 +99,8 @@ function startPayment() {
   payOpen.value = true
 }
 
-function openShiftAndPay() {
-  shift.open(Math.max(0, Number(openingFloat.value) || 0))
+async function openShiftAndPay() {
+  await shift.open(Math.max(0, Number(openingFloat.value) || 0))
   shiftOpen.value = false
   toast.show('Shift opened', 'success')
   payOpen.value = true

@@ -24,8 +24,8 @@ large touch targets, and a comfortable dark theme.
 - **Staff & roles**: PIN login. Managers get everything; cashiers can sell, run shifts and manage customers.
 - **Settings**: store info, currency (USD, LAK, THB, EUR, VND), tax, service charge, theme, and JSON backup/restore.
 
-Data is stored in the browser (`localStorage`), so it works offline with no server. On first run the app loads a
-sample menu and 14 days of demo sales; clear them under **Settings → Data**.
+The app talks to a REST API. A **mock backend is included**, so it runs right after cloning, with a sample menu,
+staff, customers and 14 days of demo sales. Clear the demo sales under **Settings → Data**.
 
 **Demo PINs:** Manager `1234` · Cashier `0000`
 
@@ -37,17 +37,28 @@ Requires Node `^22.18.0` or `>=24.12.0`.
 
 ```sh
 npm install          # if npm 10 crashes with "reading 'edgesOut'", use: npx npm@11 install
-npm run dev          # http://localhost:5173
+npm run dev          # http://localhost:5173, with the mock API at /api/v1
 npm run build        # type-check + production build
 npm run test:unit    # unit tests (Vitest)
 npm run lint         # oxlint + eslint
 npm run format       # prettier
+npm run mock:reset   # reset the mock data to src/mock/data/*.json
 npm run build:preview  # single-file preview at dist-preview/sun-pos.html (no print/downloads)
 ```
 
-## API
+## Backend and API
 
-See [docs/API.md](docs/API.md) for the functions the app uses today and the planned REST API for a future backend.
+The frontend calls the REST API described in **[docs/API.md](docs/API.md)** (48 endpoints).
+
+- **Out of the box:** `npm run dev` serves a mock backend at `/api/v1`. Its starting data is in
+  `src/mock/data/*.json`, and changes are saved to `.mock-db.json` (git-ignored).
+- **Your own backend:** create `.env.local` (see [`.env.example`](.env.example)) with
+  `VITE_API_PROXY=http://localhost:8080` for development, or `VITE_API_URL=https://your-server/api/v1` for a
+  production build. The mock turns off automatically.
+- **No server:** `VITE_API_MODE=local` runs the mock inside the browser and saves to `localStorage`.
+
+`src/mock/router.ts` is the reference implementation of every endpoint, and `src/__tests__/api.spec.ts` holds the
+contract tests your backend should pass.
 
 ## Project structure
 
@@ -55,9 +66,10 @@ See [docs/API.md](docs/API.md) for the functions the app uses today and the plan
 src/
   assets/main.css      Tailwind setup and colour tokens (light and dark)
   types.ts             Domain types
-  data/seed.ts         Sample menu, staff and demo sales
-  utils/pos.ts         Totals, rounding and cash helpers
+  utils/pos.ts         Totals, rounding and cash helpers (shared by the app and the mock)
+  api/                 API client: one typed function per endpoint
   stores/              Pinia stores: cart, catalog, orders, customers, shift, auth, settings
+  mock/                Mock backend: router, business rules, and seed data in mock/data/*.json
   components/          Shared UI and sell-screen components
   views/               Pages: Sell, Orders, Shift, Customers, Products, Stock, Reports, Settings
 ```

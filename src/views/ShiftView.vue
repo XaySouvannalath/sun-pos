@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ArrowDownToLine, ArrowUpFromLine, Lock, Wallet } from 'lucide-vue-next'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import { useShiftStore } from '@/stores/shift'
 import { useSettingsStore } from '@/stores/settings'
 import { useToastStore } from '@/stores/toast'
+import { api } from '@/api'
+import type { ShiftWithSummary } from '@/types'
 
 const shift = useShiftStore()
 const settings = useSettingsStore()
@@ -19,7 +21,13 @@ const closeOpen = ref(false)
 const counted = ref(0)
 const closeNote = ref('')
 
-const summary = computed(() => (shift.current ? shift.summary(shift.current) : null))
+const summary = computed(() => shift.summary)
+const history = ref<ShiftWithSummary[]>([])
+
+async function loadHistory() {
+  history.value = await api.shifts.history(30)
+}
+onMounted(() => Promise.all([shift.load(), loadHistory()]))
 const difference = computed(() =>
   summary.value ? settings.round((Number(counted.value) || 0) - summary.value.expectedCash) : 0,
 )
@@ -32,8 +40,8 @@ const fmt = (t: number) =>
     minute: '2-digit',
   })
 
-function openShift() {
-  shift.open(Math.max(0, Number(openingFloat.value) || 0))
+async function openShift() {
+  await shift.open(Math.max(0, Number(openingFloat.value) || 0))
   toast.show('Shift opened', 'success')
 }
 
@@ -44,10 +52,10 @@ function startMove(type: 'in' | 'out') {
   moveOpen.value = true
 }
 
-function saveMove() {
+async function saveMove() {
   const amt = Number(moveAmount.value) || 0
   if (amt <= 0) return
-  shift.moveCash(moveType.value, amt, moveReason.value.trim())
+  await shift.moveCash(moveType.value, amt, moveReason.value.trim())
   moveOpen.value = false
   toast.show(moveType.value === 'in' ? 'Cash added' : 'Cash removed', 'success')
 }
@@ -58,8 +66,9 @@ function startClose() {
   closeOpen.value = true
 }
 
-function closeShift() {
-  shift.close(Math.max(0, Number(counted.value) || 0), closeNote.value.trim())
+async function closeShift() {
+  await shift.close(Math.max(0, Number(counted.value) || 0), closeNote.value.trim())
+  await loadHistory()
   closeOpen.value = false
   toast.show('Shift closed', 'success')
 }
@@ -193,7 +202,7 @@ function closeShift() {
     </template>
 
     <!-- History -->
-    <section v-if="shift.history.length">
+    <section v-if="history.length">
       <h2 class="mb-3 text-lg font-semibold">Past shifts</h2>
       <div class="card overflow-x-auto">
         <table class="table">
@@ -208,7 +217,7 @@ function closeShift() {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="s in shift.history.slice(0, 30)" :key="s.id">
+            <tr v-for="{ shift: s, summary: sum } in history" :key="s.id">
               <td class="whitespace-nowrap">
                 {{ fmt(s.openedAt)
                 }}<span class="block text-xs text-ink-muted">{{ s.openedBy }}</span>
@@ -217,7 +226,7 @@ function closeShift() {
                 {{ fmt(s.closedAt!)
                 }}<span class="block text-xs text-ink-muted">{{ s.closedBy }}</span>
               </td>
-              <td class="text-right">{{ settings.money(shift.summary(s).gross) }}</td>
+              <td class="text-right">{{ settings.money(sum.gross) }}</td>
               <td class="text-right">{{ settings.money(s.expectedCash ?? 0) }}</td>
               <td class="text-right">{{ settings.money(s.countedCash ?? 0) }}</td>
               <td

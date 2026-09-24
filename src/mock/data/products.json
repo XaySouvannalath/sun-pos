@@ -1,0 +1,1036 @@
+[
+  {
+    "id": "prd-1",
+    "name": "Espresso",
+    "categoryId": "cat-coffee",
+    "emoji": "☕",
+    "price": 2.5,
+    "cost": 0.6,
+    "stock": null,
+    "lowStockAt": 5,
+    "sku": "SKU-001",
+    "barcode": "8850000000001",
+    "active": true,
+    "options": [
+      {
+        "id": "temp",
+        "name": "Temperature",
+        "multiple": false,
+        "required": true,
+        "choices": [
+          {
+            "name": "Hot",
+            "price": 0
+          },
+          {
+            "name": "Iced",
+            "price": 0.25
+          }
+        ]
+      },
+      {
+        "id": "extras",
+        "name": "Extras",
+        "multiple": true,
+        "required": false,
+        "choices": [
+          {
+            "name": "Extra shot",
+            "price": 0.75
+          },
+          {
+            "name": "Vanilla syrup",
+            "price": 0.5
+          },
+          {
+            "name": "Caramel syrup",
+            "price": 0.5
+          },
+          {
+            "name": "Less sugar",
+            "price": 0
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "prd-2",
+    "name": "Americano",
+    "categoryId": "cat-coffee",
+    "emoji": "☕",
+    "price": 3,
+    "cost": 0.7,
+    "stock": null,
+    "lowStockAt": 5,
+    "sku": "SKU-002",
+    "barcode": "8850000000002",
+    "active": true,
+    "options": [
+      {
+        "id": "size",
+        "name": "Size",
+        "multiple": false,
+        "required": true,
+        "choices": [
+          {
+            "name": "Regular",
+            "price": 0
+          },
+          {
+            "name": "Large",
+            "price": 0.5
+          }
+        ]
+      },
+      {
+        "id": "temp",
+        "name": "Temperature",
+        "multiple": false,
+        "required": true,
+        "choices": [
+          {
+            "name": "Hot",
+            "price": 0
+          },
+          {
+            "name": "Iced",
+            "price": 0.25
+          }
+        ]
+      },
+      {
+        "id": "extras",
+        "name": "Extras",
+        "multiple": true,
+        "required": false,
+        "choices": [
+          {
+            "name": "Extra shot",
+            "price": 0.75
+          },
+          {
+            "name": "Vanilla syrup",
+            "price": 0.5
+          },
+          {
+            "name": "Caramel syrup",
+            "price": 0.5
+          },
+          {
+            "name": "Less sugar",
+            "price": 0
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "prd-3",
+    "name": "Cappuccino",
+    "categoryId": "cat-coffee",
+    "emoji": "☕",
+    "price": 3.75,
+    "cost": 0.9,
+    "stock": null,
+    "lowStockAt": 5,
+    "sku": "SKU-003",
+    "barcode": "8850000000003",
+    "active": true,
+    "options": [
+      {
+        "id": "size",
+        "name": "Size",
+        "multiple": false,
+        "required": true,
+        "choices": [
+          {
+            "name": "Regular",
+            "price": 0
+          },
+          {
+            "name": "Large",
+            "price": 0.5
+          }
+        ]
+      },
+      {
+        "id": "temp",
+        "name": "Temperature",
+        "multiple": false,
+        "required": true,
+        "choices": [
+          {
+            "name": "Hot",
+            "price": 0
+          },
+          {
+            "name": "Iced",
+            "price": 0.25
+          }
+        ]
+      },
+      {
+        "id": "milk",
+        "name": "Milk",
+        "multiple": false,
+        "required": false,
+        "choices": [
+          {
+            "name": "Oat milk",
+            "price": 0.5
+          },
+          {
+            "name": "Almond milk",
+            "price": 0.5
+          },
+          {
+            "name": "Soy milk",
+            "price": 0.4
+          }
+        ]
+      },
+      {
+        "id": "extras",
+        "name": "Extras",
+        "multiple": true,
+        "required": false,
+        "choices": [
+          {
+            "name": "Extra shot",
+            "price": 0.75
+          },
+          {
+            "name": "Vanilla syrup",
+            "price": 0.5
+          },
+          {
+            "name": "Caramel syrup",
+            "price": 0.5
+          },
+          {
+            "name": "Less sugar",
+            "price": 0
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "prd-4",
+    "name": "Café Latte",
+    "categoryId": "cat-coffee",
+    "emoji": "🥛",
+    "price": 3.75,
+    "cost": 0.9,
+    "stock": null,
+    "lowStockAt": 5,
+    "sku": "SKU-004",
+    "barcode": "8850000000004",
+    "active": true,
+    "options": [
+      {
+        "id": "size",
+        "name": "Size",
+        "multiple": false,
+        "required": true,
+        "choices": [
+          {
+            "name": "Regular",
+            "price": 0
+          },
+          {
+            "name": "Large",
+            "price": 0.5
+          }
+        ]
+      },
+      {
+        "id": "temp",
+        "name": "Temperature",
+        "multiple": false,
+        "required": true,
+        "choices": [
+          {
+            "name": "Hot",
+            "price": 0
+          },
+          {
+            "name": "Iced",
+            "price": 0.25
+          }
+        ]
+      },
+      {
+        "id": "milk",
+        "name": "Milk",
+        "multiple": false,
+        "required": false,
+        "choices": [
+          {
+            "name": "Oat milk",
+            "price": 0.5
+          },
+          {
+            "name": "Almond milk",
+            "price": 0.5
+          },
+          {
+            "name": "Soy milk",
+            "price": 0.4
+          }
+        ]
+      },
+      {
+        "id": "extras",
+        "name": "Extras",
+        "multiple": true,
+        "required": false,
+        "choices": [
+          {
+            "name": "Extra shot",
+            "price": 0.75
+          },
+          {
+            "name": "Vanilla syrup",
+            "price": 0.5
+          },
+          {
+            "name": "Caramel syrup",
+            "price": 0.5
+          },
+          {
+            "name": "Less sugar",
+            "price": 0
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "prd-5",
+    "name": "Lao Iced Coffee",
+    "categoryId": "cat-coffee",
+    "emoji": "🧋",
+    "price": 3.25,
+    "cost": 0.8,
+    "stock": null,
+    "lowStockAt": 5,
+    "sku": "SKU-005",
+    "barcode": "8850000000005",
+    "active": true,
+    "options": [
+      {
+        "id": "size",
+        "name": "Size",
+        "multiple": false,
+        "required": true,
+        "choices": [
+          {
+            "name": "Regular",
+            "price": 0
+          },
+          {
+            "name": "Large",
+            "price": 0.5
+          }
+        ]
+      },
+      {
+        "id": "sweet",
+        "name": "Sweetness",
+        "multiple": false,
+        "required": false,
+        "choices": [
+          {
+            "name": "No sugar",
+            "price": 0
+          },
+          {
+            "name": "Half sweet",
+            "price": 0
+          },
+          {
+            "name": "Extra sweet",
+            "price": 0
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "prd-6",
+    "name": "Mocha",
+    "categoryId": "cat-coffee",
+    "emoji": "🍫",
+    "price": 4.25,
+    "cost": 1.1,
+    "stock": null,
+    "lowStockAt": 5,
+    "sku": "SKU-006",
+    "barcode": "8850000000006",
+    "active": true,
+    "options": [
+      {
+        "id": "size",
+        "name": "Size",
+        "multiple": false,
+        "required": true,
+        "choices": [
+          {
+            "name": "Regular",
+            "price": 0
+          },
+          {
+            "name": "Large",
+            "price": 0.5
+          }
+        ]
+      },
+      {
+        "id": "temp",
+        "name": "Temperature",
+        "multiple": false,
+        "required": true,
+        "choices": [
+          {
+            "name": "Hot",
+            "price": 0
+          },
+          {
+            "name": "Iced",
+            "price": 0.25
+          }
+        ]
+      },
+      {
+        "id": "milk",
+        "name": "Milk",
+        "multiple": false,
+        "required": false,
+        "choices": [
+          {
+            "name": "Oat milk",
+            "price": 0.5
+          },
+          {
+            "name": "Almond milk",
+            "price": 0.5
+          },
+          {
+            "name": "Soy milk",
+            "price": 0.4
+          }
+        ]
+      },
+      {
+        "id": "extras",
+        "name": "Extras",
+        "multiple": true,
+        "required": false,
+        "choices": [
+          {
+            "name": "Extra shot",
+            "price": 0.75
+          },
+          {
+            "name": "Vanilla syrup",
+            "price": 0.5
+          },
+          {
+            "name": "Caramel syrup",
+            "price": 0.5
+          },
+          {
+            "name": "Less sugar",
+            "price": 0
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "prd-7",
+    "name": "Green Tea Latte",
+    "categoryId": "cat-tea",
+    "emoji": "🍵",
+    "price": 4,
+    "cost": 1,
+    "stock": null,
+    "lowStockAt": 5,
+    "sku": "SKU-007",
+    "barcode": "8850000000007",
+    "active": true,
+    "options": [
+      {
+        "id": "size",
+        "name": "Size",
+        "multiple": false,
+        "required": true,
+        "choices": [
+          {
+            "name": "Regular",
+            "price": 0
+          },
+          {
+            "name": "Large",
+            "price": 0.5
+          }
+        ]
+      },
+      {
+        "id": "temp",
+        "name": "Temperature",
+        "multiple": false,
+        "required": true,
+        "choices": [
+          {
+            "name": "Hot",
+            "price": 0
+          },
+          {
+            "name": "Iced",
+            "price": 0.25
+          }
+        ]
+      },
+      {
+        "id": "milk",
+        "name": "Milk",
+        "multiple": false,
+        "required": false,
+        "choices": [
+          {
+            "name": "Oat milk",
+            "price": 0.5
+          },
+          {
+            "name": "Almond milk",
+            "price": 0.5
+          },
+          {
+            "name": "Soy milk",
+            "price": 0.4
+          }
+        ]
+      },
+      {
+        "id": "sweet",
+        "name": "Sweetness",
+        "multiple": false,
+        "required": false,
+        "choices": [
+          {
+            "name": "No sugar",
+            "price": 0
+          },
+          {
+            "name": "Half sweet",
+            "price": 0
+          },
+          {
+            "name": "Extra sweet",
+            "price": 0
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "prd-8",
+    "name": "Thai Milk Tea",
+    "categoryId": "cat-tea",
+    "emoji": "🧋",
+    "price": 3.5,
+    "cost": 0.8,
+    "stock": null,
+    "lowStockAt": 5,
+    "sku": "SKU-008",
+    "barcode": "8850000000008",
+    "active": true,
+    "options": [
+      {
+        "id": "size",
+        "name": "Size",
+        "multiple": false,
+        "required": true,
+        "choices": [
+          {
+            "name": "Regular",
+            "price": 0
+          },
+          {
+            "name": "Large",
+            "price": 0.5
+          }
+        ]
+      },
+      {
+        "id": "sweet",
+        "name": "Sweetness",
+        "multiple": false,
+        "required": false,
+        "choices": [
+          {
+            "name": "No sugar",
+            "price": 0
+          },
+          {
+            "name": "Half sweet",
+            "price": 0
+          },
+          {
+            "name": "Extra sweet",
+            "price": 0
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "prd-9",
+    "name": "Lemon Iced Tea",
+    "categoryId": "cat-tea",
+    "emoji": "🍋",
+    "price": 3,
+    "cost": 0.6,
+    "stock": null,
+    "lowStockAt": 5,
+    "sku": "SKU-009",
+    "barcode": "8850000000009",
+    "active": true,
+    "options": [
+      {
+        "id": "size",
+        "name": "Size",
+        "multiple": false,
+        "required": true,
+        "choices": [
+          {
+            "name": "Regular",
+            "price": 0
+          },
+          {
+            "name": "Large",
+            "price": 0.5
+          }
+        ]
+      },
+      {
+        "id": "sweet",
+        "name": "Sweetness",
+        "multiple": false,
+        "required": false,
+        "choices": [
+          {
+            "name": "No sugar",
+            "price": 0
+          },
+          {
+            "name": "Half sweet",
+            "price": 0
+          },
+          {
+            "name": "Extra sweet",
+            "price": 0
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "prd-10",
+    "name": "Jasmine Tea",
+    "categoryId": "cat-tea",
+    "emoji": "🫖",
+    "price": 2.75,
+    "cost": 0.5,
+    "stock": null,
+    "lowStockAt": 5,
+    "sku": "SKU-010",
+    "barcode": "8850000000010",
+    "active": true,
+    "options": [
+      {
+        "id": "temp",
+        "name": "Temperature",
+        "multiple": false,
+        "required": true,
+        "choices": [
+          {
+            "name": "Hot",
+            "price": 0
+          },
+          {
+            "name": "Iced",
+            "price": 0.25
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "prd-11",
+    "name": "Mango Smoothie",
+    "categoryId": "cat-smoothie",
+    "emoji": "🥭",
+    "price": 4.5,
+    "cost": 1.3,
+    "stock": null,
+    "lowStockAt": 5,
+    "sku": "SKU-011",
+    "barcode": "8850000000011",
+    "active": true,
+    "options": [
+      {
+        "id": "size",
+        "name": "Size",
+        "multiple": false,
+        "required": true,
+        "choices": [
+          {
+            "name": "Regular",
+            "price": 0
+          },
+          {
+            "name": "Large",
+            "price": 0.5
+          }
+        ]
+      },
+      {
+        "id": "sweet",
+        "name": "Sweetness",
+        "multiple": false,
+        "required": false,
+        "choices": [
+          {
+            "name": "No sugar",
+            "price": 0
+          },
+          {
+            "name": "Half sweet",
+            "price": 0
+          },
+          {
+            "name": "Extra sweet",
+            "price": 0
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "prd-12",
+    "name": "Strawberry Smoothie",
+    "categoryId": "cat-smoothie",
+    "emoji": "🍓",
+    "price": 4.5,
+    "cost": 1.4,
+    "stock": null,
+    "lowStockAt": 5,
+    "sku": "SKU-012",
+    "barcode": "8850000000012",
+    "active": true,
+    "options": [
+      {
+        "id": "size",
+        "name": "Size",
+        "multiple": false,
+        "required": true,
+        "choices": [
+          {
+            "name": "Regular",
+            "price": 0
+          },
+          {
+            "name": "Large",
+            "price": 0.5
+          }
+        ]
+      },
+      {
+        "id": "sweet",
+        "name": "Sweetness",
+        "multiple": false,
+        "required": false,
+        "choices": [
+          {
+            "name": "No sugar",
+            "price": 0
+          },
+          {
+            "name": "Half sweet",
+            "price": 0
+          },
+          {
+            "name": "Extra sweet",
+            "price": 0
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "prd-13",
+    "name": "Passion Fruit Soda",
+    "categoryId": "cat-smoothie",
+    "emoji": "🥤",
+    "price": 3.75,
+    "cost": 0.9,
+    "stock": null,
+    "lowStockAt": 5,
+    "sku": "SKU-013",
+    "barcode": "8850000000013",
+    "active": true,
+    "options": [
+      {
+        "id": "size",
+        "name": "Size",
+        "multiple": false,
+        "required": true,
+        "choices": [
+          {
+            "name": "Regular",
+            "price": 0
+          },
+          {
+            "name": "Large",
+            "price": 0.5
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "prd-14",
+    "name": "Chicken Fried Rice",
+    "categoryId": "cat-food",
+    "emoji": "🍛",
+    "price": 6.5,
+    "cost": 2.2,
+    "stock": 40,
+    "lowStockAt": 5,
+    "sku": "SKU-014",
+    "barcode": "8850000000014",
+    "active": true,
+    "options": [
+      {
+        "id": "food-extras",
+        "name": "Add-ons",
+        "multiple": true,
+        "required": false,
+        "choices": [
+          {
+            "name": "Fried egg",
+            "price": 1
+          },
+          {
+            "name": "Extra chicken",
+            "price": 2
+          },
+          {
+            "name": "No chilli",
+            "price": 0
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "prd-15",
+    "name": "Pad Kra Pao",
+    "categoryId": "cat-food",
+    "emoji": "🌶️",
+    "price": 6.75,
+    "cost": 2.3,
+    "stock": 35,
+    "lowStockAt": 5,
+    "sku": "SKU-015",
+    "barcode": "8850000000015",
+    "active": true,
+    "options": [
+      {
+        "id": "food-extras",
+        "name": "Add-ons",
+        "multiple": true,
+        "required": false,
+        "choices": [
+          {
+            "name": "Fried egg",
+            "price": 1
+          },
+          {
+            "name": "Extra chicken",
+            "price": 2
+          },
+          {
+            "name": "No chilli",
+            "price": 0
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "prd-16",
+    "name": "Club Sandwich",
+    "categoryId": "cat-food",
+    "emoji": "🥪",
+    "price": 6,
+    "cost": 2,
+    "stock": 25,
+    "lowStockAt": 5,
+    "sku": "SKU-016",
+    "barcode": "8850000000016",
+    "active": true,
+    "options": []
+  },
+  {
+    "id": "prd-17",
+    "name": "Noodle Soup (Feu)",
+    "categoryId": "cat-food",
+    "emoji": "🍜",
+    "price": 5.5,
+    "cost": 1.8,
+    "stock": 30,
+    "lowStockAt": 5,
+    "sku": "SKU-017",
+    "barcode": "8850000000017",
+    "active": true,
+    "options": [
+      {
+        "id": "food-extras",
+        "name": "Add-ons",
+        "multiple": true,
+        "required": false,
+        "choices": [
+          {
+            "name": "Fried egg",
+            "price": 1
+          },
+          {
+            "name": "Extra chicken",
+            "price": 2
+          },
+          {
+            "name": "No chilli",
+            "price": 0
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "prd-18",
+    "name": "Caesar Salad",
+    "categoryId": "cat-food",
+    "emoji": "🥗",
+    "price": 5.75,
+    "cost": 1.9,
+    "stock": 20,
+    "lowStockAt": 5,
+    "sku": "SKU-018",
+    "barcode": "8850000000018",
+    "active": true,
+    "options": []
+  },
+  {
+    "id": "prd-19",
+    "name": "Butter Croissant",
+    "categoryId": "cat-bakery",
+    "emoji": "🥐",
+    "price": 2.75,
+    "cost": 0.8,
+    "stock": 30,
+    "lowStockAt": 5,
+    "sku": "SKU-019",
+    "barcode": "8850000000019",
+    "active": true,
+    "options": []
+  },
+  {
+    "id": "prd-20",
+    "name": "Pain au Chocolat",
+    "categoryId": "cat-bakery",
+    "emoji": "🥐",
+    "price": 3.25,
+    "cost": 0.9,
+    "stock": 24,
+    "lowStockAt": 5,
+    "sku": "SKU-020",
+    "barcode": "8850000000020",
+    "active": true,
+    "options": []
+  },
+  {
+    "id": "prd-21",
+    "name": "Banana Bread",
+    "categoryId": "cat-bakery",
+    "emoji": "🍞",
+    "price": 3,
+    "cost": 0.7,
+    "stock": 18,
+    "lowStockAt": 5,
+    "sku": "SKU-021",
+    "barcode": "8850000000021",
+    "active": true,
+    "options": []
+  },
+  {
+    "id": "prd-22",
+    "name": "Blueberry Muffin",
+    "categoryId": "cat-bakery",
+    "emoji": "🧁",
+    "price": 3,
+    "cost": 0.8,
+    "stock": 4,
+    "lowStockAt": 5,
+    "sku": "SKU-022",
+    "barcode": "8850000000022",
+    "active": true,
+    "options": []
+  },
+  {
+    "id": "prd-23",
+    "name": "Chocolate Cake",
+    "categoryId": "cat-dessert",
+    "emoji": "🍰",
+    "price": 4.5,
+    "cost": 1.3,
+    "stock": 12,
+    "lowStockAt": 5,
+    "sku": "SKU-023",
+    "barcode": "8850000000023",
+    "active": true,
+    "options": []
+  },
+  {
+    "id": "prd-24",
+    "name": "Mango Sticky Rice",
+    "categoryId": "cat-dessert",
+    "emoji": "🥭",
+    "price": 4.75,
+    "cost": 1.4,
+    "stock": 15,
+    "lowStockAt": 5,
+    "sku": "SKU-024",
+    "barcode": "8850000000024",
+    "active": true,
+    "options": []
+  },
+  {
+    "id": "prd-25",
+    "name": "Coconut Ice Cream",
+    "categoryId": "cat-dessert",
+    "emoji": "🍨",
+    "price": 3.5,
+    "cost": 0.9,
+    "stock": 3,
+    "lowStockAt": 5,
+    "sku": "SKU-025",
+    "barcode": "8850000000025",
+    "active": true,
+    "options": []
+  }
+]

@@ -24,14 +24,26 @@ function press(k: string) {
   }
 }
 
-function tryLogin(showError = true) {
-  if (auth.login(pin.value)) {
-    const next = typeof route.query.next === 'string' ? route.query.next : '/'
-    router.replace(next)
-  } else if (showError || pin.value.length === 6) {
-    error.value = true
-    pin.value = ''
+const busy = ref(false)
+
+// PINs are 4–6 digits: try from the 4th digit, and only show an error on Enter or at 6 digits.
+async function tryLogin(showError = true) {
+  if (busy.value || !pin.value) return
+  busy.value = true
+  const attempt = pin.value
+  try {
+    if (await auth.login(attempt)) {
+      const next = typeof route.query.next === 'string' ? route.query.next : '/'
+      await router.replace(next)
+    } else if (showError || attempt.length === 6) {
+      error.value = true
+      pin.value = ''
+    }
+  } finally {
+    busy.value = false
   }
+  // Digits typed while the check was running: try the longer PIN.
+  if (auth.user === null && pin.value !== attempt && pin.value.length >= 4) void tryLogin(false)
 }
 
 function onKey(e: KeyboardEvent) {

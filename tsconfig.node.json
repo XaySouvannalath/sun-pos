@@ -4,6 +4,7 @@
   "include": [
     "vite.config.*",
     "vite.preview.config.*",
+    "src/mock/node/**/*",
     "vitest.config.*",
     "cypress.config.*",
     "playwright.config.*",
@@ -15,6 +16,7 @@
     "module": "preserve",
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
 
     // Include Node.js types and avoid accidentally including other `@types/*` packages.
     "types": ["node"],

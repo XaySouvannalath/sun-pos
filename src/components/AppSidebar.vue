@@ -15,6 +15,7 @@ import {
   Moon,
 } from 'lucide-vue-next'
 import { useAuthStore } from '@/stores/auth'
+import { useAppStore } from '@/stores/app'
 import { useSettingsStore } from '@/stores/settings'
 import { useCatalogStore } from '@/stores/catalog'
 
@@ -36,9 +37,10 @@ const links = computed(() =>
   ].filter((l) => !l.admin || auth.isAdmin),
 )
 
-function lock() {
-  auth.logout()
-  router.push('/lock')
+async function lock() {
+  await auth.logout()
+  useAppStore().reset()
+  await router.push('/lock')
 }
 </script>
 

@@ -14,7 +14,8 @@
     "lint:oxlint": "oxlint . --fix",
     "lint:eslint": "eslint . --fix --cache",
     "format": "prettier --write --experimental-cli src/",
-    "build:preview": "vite build --config vite.preview.config.ts && node scripts/build-preview.mjs"
+    "build:preview": "vite build --config vite.preview.config.ts && node scripts/build-preview.mjs",
+    "mock:reset": "node -e \"require('fs').rmSync('.mock-db.json',{force:true});console.log('Mock data reset to src/mock/data/*.json')\""
   },
   "dependencies": {
     "lucide-vue-next": "^1.0.0",

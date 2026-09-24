@@ -7,7 +7,6 @@ import { useCatalogStore } from '@/stores/catalog'
 import { useSettingsStore } from '@/stores/settings'
 import { useToastStore } from '@/stores/toast'
 import { tintClasses, tintNames } from '@/utils/tints'
-import { uid } from '@/utils/pos'
 import type { Category, Product } from '@/types'
 
 const catalog = useCatalogStore()
@@ -45,20 +44,20 @@ const catForm = ref<Category>({ id: '', name: '', tint: 'sage' })
 const catError = ref('')
 
 function editCat(c: Category | null) {
-  catForm.value = c ? { ...c } : { id: uid(), name: '', tint: 'sage' }
+  catForm.value = c ? { ...c } : { id: '', name: '', tint: 'sage' }
   catError.value = ''
   catOpen.value = true
 }
 
-function saveCat() {
+async function saveCat() {
   if (!catForm.value.name.trim()) return
-  catalog.saveCategory({ ...catForm.value, name: catForm.value.name.trim() })
+  await catalog.saveCategory({ ...catForm.value, name: catForm.value.name.trim() })
   catOpen.value = false
   toast.show('Category saved', 'success')
 }
 
-function removeCat() {
-  const err = catalog.removeCategory(catForm.value.id)
+async function removeCat() {
+  const err = await catalog.removeCategory(catForm.value.id)
   if (err) catError.value = err
   else {
     catOpen.value = false
@@ -197,11 +196,7 @@ const countIn = (id: string) => catalog.products.filter((p) => p.categoryId === 
       @deleted="toast.show('Product deleted')"
     />
 
-    <BaseModal
-      v-model="catOpen"
-      :title="catalog.categoryById.has(catForm.id) ? 'Edit category' : 'New category'"
-      size="sm"
-    >
+    <BaseModal v-model="catOpen" :title="catForm.id ? 'Edit category' : 'New category'" size="sm">
       <div class="space-y-4">
         <div>
           <label class="label" for="cat-name">Name</label>
@@ -227,11 +222,7 @@ const countIn = (id: string) => catalog.products.filter((p) => p.categoryId === 
         <p v-if="catError" class="text-sm text-danger">{{ catError }}</p>
       </div>
       <template #footer>
-        <button
-          v-if="catalog.categoryById.has(catForm.id)"
-          class="btn btn-danger"
-          @click="removeCat"
-        >
+        <button v-if="catForm.id" class="btn btn-danger" @click="removeCat">
           <Trash2 class="size-4" />
         </button>
         <button class="btn btn-soft ml-auto" @click="catOpen = false">Cancel</button>

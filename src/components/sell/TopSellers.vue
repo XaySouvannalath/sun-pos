@@ -9,7 +9,7 @@ defineEmits<{ add: [p: Product] }>()
 
 const orders = useOrdersStore()
 const settings = useSettingsStore()
-const top = computed(() => orders.topSellers(settings.s.topSellerDays, 8))
+const top = computed(() => orders.topSellers)
 
 const medal = [
   'bg-accent text-primary-ink',

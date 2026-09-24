@@ -1,17 +1,16 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { Search, UserPlus, Star, Trash2, Pencil } from 'lucide-vue-next'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import CustomerForm from '@/components/CustomerForm.vue'
+import { api } from '@/api'
 import { useCustomersStore } from '@/stores/customers'
-import { useOrdersStore } from '@/stores/orders'
 import { useSettingsStore } from '@/stores/settings'
 import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
-import type { Customer } from '@/types'
+import type { Customer, Order } from '@/types'
 
 const customers = useCustomersStore()
-const orders = useOrdersStore()
 const settings = useSettingsStore()
 const auth = useAuthStore()
 const toast = useToastStore()
@@ -21,6 +20,9 @@ const editing = ref<Customer | null>(null)
 const formOpen = ref(false)
 const viewing = ref<Customer | null>(null)
 const confirmDelete = ref(false)
+const history = ref<Order[]>([])
+
+onMounted(() => customers.load())
 
 const list = computed(() => customers.search(q.value))
 const viewOpen = computed({
@@ -29,8 +31,13 @@ const viewOpen = computed({
     if (!v) viewing.value = null
   },
 })
-const history = computed(() =>
-  viewing.value ? orders.orders.filter((o) => o.customerId === viewing.value!.id).slice(0, 20) : [],
+
+watch(
+  () => viewing.value?.id,
+  async (id) => {
+    history.value = []
+    if (id) history.value = await api.customers.orders(id, 20)
+  },
 )
 
 function openForm(c: Customer | null) {
@@ -38,15 +45,16 @@ function openForm(c: Customer | null) {
   formOpen.value = true
 }
 
-function save(d: Parameters<typeof customers.save>[0]) {
-  customers.save(d)
+async function save(d: Parameters<typeof customers.save>[0]) {
+  const saved = await customers.save(d)
+  if (viewing.value?.id === saved.id) viewing.value = saved
   formOpen.value = false
   toast.show('Customer saved', 'success')
 }
 
-function remove() {
+async function remove() {
   if (!viewing.value) return
-  customers.remove(viewing.value.id)
+  await customers.remove(viewing.value.id)
   confirmDelete.value = false
   viewing.value = null
   toast.show('Customer deleted')

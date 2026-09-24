@@ -1,5 +1,4 @@
-import { canDownload } from './env'
-import type { Discount, OrderLine, Payment, SelectedOption, Totals } from '@/types'
+import type { Discount, OrderLine, Payment, SelectedOption, Totals } from '../types.ts'
 
 export function uid(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
@@ -76,19 +75,6 @@ export function startOfDay(ts: number): number {
   const d = new Date(ts)
   d.setHours(0, 0, 0, 0)
   return d.getTime()
-}
-
-export function downloadCsv(filename: string, rows: (string | number)[][]) {
-  if (!canDownload) return
-  const csv = rows
-    .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
-    .join('\n')
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
-  const a = document.createElement('a')
-  a.href = URL.createObjectURL(blob)
-  a.download = filename
-  a.click()
-  URL.revokeObjectURL(a.href)
 }
 
 /** Deep copy of plain data (safe for Vue reactive proxies, unlike structuredClone). */

@@ -1,18 +1,39 @@
-import { computed, watchEffect } from 'vue'
+import { computed, ref, watchEffect } from 'vue'
 import { defineStore } from 'pinia'
+import { api } from '@/api'
 import { persisted } from '@/composables/persisted'
-import { defaultSettings } from '@/data/seed'
 import { roundTo } from '@/utils/pos'
 import { embedded } from '@/utils/env'
-import type { Settings } from '@/types'
+import type { Settings, ThemeMode } from '@/types'
+
+/** Used until the server's settings arrive. */
+const fallback: Settings = {
+  storeName: 'Sun POS',
+  address: '',
+  phone: '',
+  currency: 'USD',
+  locale: 'en-US',
+  decimals: 2,
+  taxLabel: 'VAT',
+  taxRate: 0,
+  serviceRate: 0,
+  receiptFooter: '',
+  pointsPerUnit: 1,
+  topSellerDays: 30,
+}
 
 export const useSettingsStore = defineStore('settings', () => {
-  // Merge with defaults so newly added settings get a value on old installs.
-  // The embedded preview follows the viewer's theme by default.
-  const initial = (): Settings => ({ ...defaultSettings, theme: embedded ? 'system' : 'light' })
-  const stored = persisted<Settings>('settings', initial)
-  stored.value = { ...defaultSettings, ...stored.value }
-  const s = stored
+  const s = ref<Settings>({ ...fallback })
+  // Theme is a per-device preference, so it stays in this browser.
+  const theme = persisted<ThemeMode>('theme', () => (embedded ? 'system' : 'light'))
+
+  async function load() {
+    s.value = await api.settings.get()
+  }
+
+  async function save(patch: Partial<Settings>) {
+    s.value = await api.settings.update(patch)
+  }
 
   const formatter = computed(() => {
     try {
@@ -48,9 +69,7 @@ export const useSettingsStore = defineStore('settings', () => {
     typeof document !== 'undefined' ? document.documentElement.dataset.theme : undefined
   const systemDark = hostTheme ? hostTheme === 'dark' : !!prefersDark?.matches
 
-  const isDark = computed(
-    () => s.value.theme === 'dark' || (s.value.theme === 'system' && systemDark),
-  )
+  const isDark = computed(() => theme.value === 'dark' || (theme.value === 'system' && systemDark))
 
   watchEffect(() => {
     if (typeof document !== 'undefined')
@@ -58,12 +77,8 @@ export const useSettingsStore = defineStore('settings', () => {
   })
 
   function toggleTheme() {
-    s.value.theme = isDark.value ? 'light' : 'dark'
+    theme.value = isDark.value ? 'light' : 'dark'
   }
 
-  function reset() {
-    s.value = { ...defaultSettings }
-  }
-
-  return { s, money, round, isDark, toggleTheme, reset }
+  return { s, theme, load, save, money, round, isDark, toggleTheme }
 })

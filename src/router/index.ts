@@ -1,6 +1,8 @@
 import { createMemoryHistory, createRouter, createWebHistory } from 'vue-router'
 import SellView from '@/views/SellView.vue'
 import { useAuthStore } from '@/stores/auth'
+import { useAppStore } from '@/stores/app'
+import { useToastStore } from '@/stores/toast'
 import { embedded } from '@/utils/env'
 
 const router = createRouter({
@@ -60,10 +62,19 @@ const router = createRouter({
   ],
 })
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   const auth = useAuthStore()
+  await auth.init()
   if (!to.meta.public && !auth.user) return { name: 'lock', query: { next: to.fullPath } }
   if (to.meta.admin && !auth.isAdmin) return { name: 'sell' }
+  const app = useAppStore()
+  if (auth.user && !to.meta.public && !app.loaded) {
+    try {
+      await app.load()
+    } catch (e) {
+      useToastStore().show(e instanceof Error ? e.message : 'Could not load data', 'error', 5000)
+    }
+  }
 })
 
 router.afterEach((to) => {

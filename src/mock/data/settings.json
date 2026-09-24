@@ -1,0 +1,14 @@
+{
+  "storeName": "Sun Café",
+  "address": "123 Riverside Road",
+  "phone": "+856 20 0000 0000",
+  "currency": "USD",
+  "locale": "en-US",
+  "decimals": 2,
+  "taxLabel": "VAT",
+  "taxRate": 10,
+  "serviceRate": 0,
+  "receiptFooter": "Thank you! See you again soon.",
+  "pointsPerUnit": 1,
+  "topSellerDays": 30
+}

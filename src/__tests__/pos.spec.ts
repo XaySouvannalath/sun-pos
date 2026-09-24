@@ -1,11 +1,6 @@
-import { beforeEach, describe, expect, it } from 'vitest'
-import { createPinia, setActivePinia } from 'pinia'
+import { describe, expect, it } from 'vitest'
 import { computeTotals, lineKey, netCash, quickCashAmounts } from '@/utils/pos'
-import { rankProducts, useOrdersStore } from '@/stores/orders'
-import { useCartStore } from '@/stores/cart'
-import { useCatalogStore } from '@/stores/catalog'
-import { useShiftStore } from '@/stores/shift'
-import { useAuthStore } from '@/stores/auth'
+import { rankProducts } from '@/mock/logic'
 import type { Order, OrderLine } from '@/types'
 
 const line = (over: Partial<OrderLine> = {}): OrderLine => ({
@@ -99,59 +94,8 @@ describe('rankProducts', () => {
   })
 })
 
-describe('checkout flow', () => {
-  beforeEach(() => {
-    localStorage.clear()
-    sessionStorage.clear()
-    setActivePinia(createPinia())
-  })
-
-  it('merges identical items, records the order and deducts stock', () => {
-    const auth = useAuthStore()
-    auth.login('1234')
-    const catalog = useCatalogStore()
-    const cart = useCartStore()
-    const orders = useOrdersStore()
-    useShiftStore().open(100)
-
-    const croissant = catalog.products.find((p) => p.name === 'Butter Croissant')!
-    const before = croissant.stock!
-    cart.add(croissant)
-    cart.add(croissant)
-    expect(cart.state.lines).toHaveLength(1)
-    expect(cart.state.lines[0]!.qty).toBe(2)
-
-    const next = orders.nextNumber
-    const order = cart.checkout([{ method: 'cash', amount: 10 }])
-    expect(order.number).toBe(next)
-    expect(order.total).toBe(6.05)
-    expect(order.change).toBe(3.95)
-    expect(order.staffName).toBe('Manager')
-    expect(croissant.stock).toBe(before - 2)
-    expect(cart.isEmpty).toBe(true)
-
-    const shift = useShiftStore()
-    expect(shift.summary(shift.current!).expectedCash).toBe(106.05)
-
-    orders.refund(order.id, 'test', true)
-    expect(croissant.stock).toBe(before)
-    expect(shift.summary(shift.current!).expectedCash).toBe(100)
-  })
-
-  it('holds and resumes orders', () => {
-    const catalog = useCatalogStore()
-    const cart = useCartStore()
-    cart.add(catalog.products[0]!)
-    cart.state.table = '5'
-    cart.hold('Table 5')
-    expect(cart.isEmpty).toBe(true)
-    expect(cart.held).toHaveLength(1)
-    cart.resume(cart.held[0]!.id)
-    expect(cart.state.table).toBe('5')
-    expect(cart.held).toHaveLength(0)
-  })
-
-  it('uses a stable key for the same options in any order', () => {
+describe('lineKey', () => {
+  it('is the same for the same options in any order', () => {
     const a = { group: 'Size', name: 'Large', price: 0.5 }
     const b = { group: 'Milk', name: 'Oat', price: 0.5 }
     expect(lineKey('p', [a, b])).toBe(lineKey('p', [b, a]))

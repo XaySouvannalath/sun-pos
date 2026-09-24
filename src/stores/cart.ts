@@ -1,9 +1,13 @@
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
+import { api } from '@/api'
 import { persisted } from '@/composables/persisted'
 import { clone, computeTotals, lineKey, uid } from '@/utils/pos'
 import { useSettingsStore } from './settings'
 import { useOrdersStore } from './orders'
+import { useCatalogStore } from './catalog'
+import { useShiftStore } from './shift'
+import { useCustomersStore } from './customers'
 import type {
   Discount,
   HeldOrder,
@@ -22,6 +26,8 @@ interface CartState {
   table: string
   note: string
   customerId: string | null
+  /** Order id reused if a checkout is retried, so the customer is never charged twice. */
+  pendingId?: string | null
 }
 
 const emptyCart = (): CartState => ({
@@ -31,6 +37,7 @@ const emptyCart = (): CartState => ({
   table: '',
   note: '',
   customerId: null,
+  pendingId: null,
 })
 
 /** Options pre-selected when a product is added in one tap: the first choice of each required group. */
@@ -41,13 +48,21 @@ export function defaultOptions(p: Product): SelectedOption[] {
 }
 
 export const useCartStore = defineStore('cart', () => {
-  // The open cart survives a page reload so an order is never lost mid-sale.
+  // The order being built stays on this device and survives a page reload.
   const state = persisted<CartState>('cart', emptyCart)
-  const held = persisted<HeldOrder[]>('held', () => [])
+  // Held orders live on the server so any till can resume them.
+  const held = ref<HeldOrder[]>([])
 
   const settings = useSettingsStore()
   const totals = computed(() => computeTotals(state.value.lines, state.value.discount, settings.s))
   const isEmpty = computed(() => state.value.lines.length === 0)
+
+  // Any change to the order means a new checkout, so drop the retry id.
+  watch(
+    () => [state.value.lines, state.value.discount, state.value.customerId],
+    () => (state.value.pendingId = null),
+    { deep: true },
+  )
 
   function add(p: Product, options: SelectedOption[] = defaultOptions(p), qty = 1) {
     const key = lineKey(p.id, options)
@@ -85,22 +100,31 @@ export const useCartStore = defineStore('cart', () => {
     state.value = emptyCart()
   }
 
-  function hold(label: string) {
+  async function loadHeld() {
+    held.value = await api.held.list()
+  }
+
+  async function hold(label: string) {
     if (isEmpty.value) return
-    held.value.unshift({
-      id: uid(),
+    const { lines, discount, orderType, table, note, customerId } = clone(state.value)
+    const h = await api.held.create({
       label: label || `Order ${held.value.length + 1}`,
-      heldAt: Date.now(),
-      ...clone(state.value),
+      lines,
+      discount,
+      orderType,
+      table,
+      note,
+      customerId,
     })
+    held.value.unshift(h)
     clear()
   }
 
-  function resume(id: string) {
-    const h = held.value.find((x) => x.id === id)
-    if (!h) return
+  async function resume(id: string) {
     // Park whatever is on screen so nothing is lost when switching orders.
-    if (!isEmpty.value) hold(state.value.table ? `Table ${state.value.table}` : '')
+    if (!isEmpty.value) await hold(state.value.table ? `Table ${state.value.table}` : '')
+    const h = await api.held.remove(id)
+    held.value = held.value.filter((x) => x.id !== id)
     state.value = {
       lines: h.lines,
       discount: h.discount,
@@ -108,31 +132,43 @@ export const useCartStore = defineStore('cart', () => {
       table: h.table,
       note: h.note,
       customerId: h.customerId,
+      pendingId: null,
     }
+  }
+
+  async function discardHeld(id: string) {
+    await api.held.remove(id)
     held.value = held.value.filter((x) => x.id !== id)
   }
 
-  function discardHeld(id: string) {
-    held.value = held.value.filter((x) => x.id !== id)
-  }
-
-  function checkout(payments: Payment[]): Order {
-    const t = totals.value
-    const tendered = settings.round(payments.reduce((s, p) => s + p.amount, 0))
-    const order = useOrdersStore().complete({
-      ...t,
-      lines: state.value.lines,
-      orderDiscount: state.value.discount,
-      orderType: state.value.orderType,
-      table: state.value.table,
-      note: state.value.note,
-      customerId: state.value.customerId,
+  /** Sends the order to the server, which prices it, deducts stock and returns the saved order. */
+  async function checkout(payments: Payment[]): Promise<Order> {
+    const c = state.value
+    c.pendingId ??= uid()
+    const order = await api.orders.create({
+      id: c.pendingId,
+      orderType: c.orderType,
+      table: c.table,
+      note: c.note,
+      customerId: c.customerId,
+      orderDiscount: c.discount,
+      lines: c.lines.map((l) => ({
+        productId: l.productId,
+        qty: l.qty,
+        options: l.options.map((o) => ({ group: o.group, name: o.name })),
+        note: l.note,
+        discountPct: l.discountPct,
+      })),
       payments,
-      tendered,
-      change: settings.round(Math.max(tendered - t.total, 0)),
-      pointsEarned: state.value.customerId ? Math.floor(t.total * settings.s.pointsPerUnit) : 0,
     })
     clear()
+    // Stock, the drawer, top sellers and loyalty points changed on the server.
+    void Promise.allSettled([
+      useCatalogStore().refreshProducts(),
+      useShiftStore().load(),
+      useOrdersStore().loadTopSellers(),
+      order.customerId ? useCustomersStore().refresh(order.customerId) : null,
+    ])
     return order
   }
 
@@ -145,6 +181,7 @@ export const useCartStore = defineStore('cart', () => {
     setQty,
     remove,
     clear,
+    loadHeld,
     hold,
     resume,
     discardHeld,

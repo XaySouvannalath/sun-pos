@@ -1,332 +1,361 @@
-# Sun POS API reference
+# Sun POS API
 
-Sun POS currently runs **entirely in the browser**. There is no server and no HTTP API yet.
+The Sun POS frontend talks to a REST API at `/api/v1`. This repository includes a **mock backend** that implements the
+whole API, so the app runs straight after `git clone`. When your real backend is ready, point the app at it with one
+setting. The screens don't need to change.
 
-This document has two parts:
+- [How it works](#how-it-works) and [switching to your backend](#switching-to-your-backend)
+- [The mock backend](#the-mock-backend) and its JSON data files
+- [REST API reference](#rest-api-reference): 48 endpoints
+- [Building your backend](#building-your-backend): a checklist and the contract tests
 
-1. **[Current API](#part-1-current-api-in-the-browser)**: the functions the app uses today. They live in the Pinia stores
-   under `src/stores/` and the helpers under `src/utils/`. Data is saved to the browser's `localStorage`.
-2. **[Planned REST API](#part-2-planned-rest-api-not-built-yet)**: a proposed server API for when Sun POS gets a backend,
-   so several devices can share orders, stock and reports. **None of these endpoints exist yet.**
-
-Data types (`Product`, `Order`, `Customer` and so on) are defined in [`src/types.ts`](../src/types.ts).
+Types for every request and response are in [`src/types.ts`](../src/types.ts).
 
 ---
 
-## Part 1. Current API (in the browser)
+## How it works
 
-Use a store inside a Vue component or another store:
-
-```ts
-import { useCartStore } from '@/stores/cart'
-
-const cart = useCartStore()
-cart.add(product)
-const order = cart.checkout([{ method: 'cash', amount: 10 }])
+```
+ Screens (src/views, src/components)
+        │
+ Pinia stores (src/stores)        cache data for the screens, call the API
+        │
+ API client (src/api)             typed functions, one per endpoint
+        │
+        ├── HTTP ──► /api/v1 ──► mock backend (npm run dev)       default
+        │                    └─► your backend (VITE_API_PROXY or VITE_API_URL)
+        │
+        └── in-browser ──► mock backend saved in localStorage      VITE_API_MODE=local
 ```
 
-### Overview
+The order being built on the Sell screen stays on the device. Everything else goes through the API: sign-in, the menu,
+checkout, held orders, customers, shifts, stock, reports and settings.
 
-| Store | File | Responsibility |
-|---|---|---|
-| `useAuthStore` | `src/stores/auth.ts` | Staff accounts, PIN login, roles |
-| `useCatalogStore` | `src/stores/catalog.ts` | Products, categories, stock levels and stock movements |
-| `useCartStore` | `src/stores/cart.ts` | The order being built, held orders, checkout |
-| `useOrdersStore` | `src/stores/orders.ts` | Completed orders, refunds, top sellers |
-| `useCustomersStore` | `src/stores/customers.ts` | Customers and loyalty points |
-| `useShiftStore` | `src/stores/shift.ts` | Shifts, cash drawer, cash in/out, end-of-day count |
-| `useSettingsStore` | `src/stores/settings.ts` | Store settings, money formatting, theme |
-| `useToastStore` | `src/stores/toast.ts` | Short on-screen messages |
+## Switching to your backend
 
-### Auth: `useAuthStore`
+Create `.env.local` in the project root (see [`.env.example`](../.env.example)) and set **one** of these:
 
-| Member | Type | Description |
-|---|---|---|
-| `staff` | `Staff[]` | All staff accounts. |
-| `user` | `Staff \| null` | The signed-in staff member. |
-| `isAdmin` | `boolean` | `true` when the signed-in user is a manager. |
-| `login(pin)` | `(pin: string) => boolean` | Signs in the staff member with this PIN. Returns `false` if no one matches. |
-| `logout()` | `() => void` | Signs out and locks the till. |
-| `saveStaff(data)` | `(data: Omit<Staff, 'id'> & { id?: string }) => string \| null` | Creates a staff member, or updates one if `id` is given. Returns an error message or `null`. Rejects PINs that aren't 4–6 digits, duplicate PINs, and removing the last manager. |
-| `removeStaff(id)` | `(id: string) => string \| null` | Deletes a staff member. Returns an error if it's you or the last manager. |
-| `roleLabel(role)` | `(role: Role) => string` | `'Manager'` or `'Cashier'`. |
+| Setting                                       | When to use it                                    | What happens                                                                                           |
+| --------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| _(nothing)_                                   | Default                                           | `npm run dev` serves the mock API at `/api/v1`.                                                        |
+| `VITE_API_PROXY=http://localhost:8080`        | Developing against your backend                   | The dev server forwards `/api/*` to your backend. The mock turns off. No CORS setup needed.            |
+| `VITE_API_URL=https://pos.example.com/api/v1` | Production builds, or a backend on another domain | The app calls this URL directly. Your backend must allow the site's origin (CORS). The mock turns off. |
+| `VITE_API_MODE=local`                         | No server at all (demos, offline)                 | The mock runs inside the browser and saves to `localStorage`.                                          |
 
-Roles: `admin` (Manager) can use every screen and refund orders. `cashier` can sell, run shifts and manage customers.
-Routes marked `meta.admin` in `src/router/index.ts` are manager-only.
+Restart `npm run dev` after changing `.env.local`. With `VITE_API_PROXY`, your backend must serve the endpoints under
+`/api/v1`.
 
-### Catalog: `useCatalogStore`
+## The mock backend
 
-| Member | Type | Description |
-|---|---|---|
-| `categories` | `Category[]` | All categories. |
-| `products` | `Product[]` | All products, including hidden ones. |
-| `stockMoves` | `StockMove[]` | Stock movement log, newest first (keeps the last 1,000). |
-| `byId` | `Map<string, Product>` | Product lookup by id. |
-| `categoryById` | `Map<string, Category>` | Category lookup by id. |
-| `activeProducts` | `Product[]` | Products shown on the Sell screen. |
-| `lowStock` | `Product[]` | Active, stock-tracked products at or below their alert level. |
-| `findByCode(code)` | `(code: string) => Product \| undefined` | Finds an active product by barcode or SKU (case-insensitive). Used for barcode scanning. |
-| `newProduct()` | `() => Product` | Returns a blank product with a new id and the next SKU. Does not save it. |
-| `saveProduct(p)` | `(p: Product) => void` | Creates or replaces a product (matched by `id`). |
-| `removeProduct(id)` | `(id: string) => void` | Deletes a product. Past orders keep their copy of the item. |
-| `saveCategory(c)` | `(c: Category) => void` | Creates or replaces a category. |
-| `removeCategory(id)` | `(id: string) => string \| null` | Deletes an empty category. Returns an error if products still use it. |
-| `adjustStock(productId, delta, reason, by)` | `(string, number, string, string) => void` | Adds `delta` (negative to remove) to a tracked product's stock and logs the movement. Does nothing for untracked products (`stock: null`). |
-| `reset()` | `() => void` | Restores the sample menu and clears the stock log. |
+| File                           | Purpose                                                                                                                                         |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/mock/data/*.json`         | Seed data: `settings`, `staff`, `categories`, `products`, `customers`, `orders` (about 220 demo sales). Edit these to change the starting data. |
+| `src/mock/router.ts`           | Every endpoint: routing, validation, roles and business rules. **This is the reference implementation for your backend.**                       |
+| `src/mock/logic.ts`            | Top-seller ranking, shift cash-up and report calculations.                                                                                      |
+| `src/mock/db.ts`               | Loads the seed data and saves changes.                                                                                                          |
+| `src/mock/node/vite-plugin.ts` | Serves the mock from `npm run dev` and `npm run preview`.                                                                                       |
+| `src/mock/browser.ts`          | Runs the mock inside the browser (`VITE_API_MODE=local`).                                                                                       |
 
-### Cart: `useCartStore`
-
-| Member | Type | Description |
-|---|---|---|
-| `state` | `{ lines, discount, orderType, table, note, customerId }` | The order being built. Saved, so a page reload doesn't lose it. |
-| `held` | `HeldOrder[]` | Orders parked with **Hold**. |
-| `totals` | `Totals` | `itemCount`, `subtotal`, `discount`, `service`, `tax`, `total` for the current order. |
-| `isEmpty` | `boolean` | `true` when there are no items. |
-| `add(product, options?, qty?)` | `(Product, SelectedOption[]?, number?) => void` | Adds an item. Options default to the first choice of each required group. Merges with an identical line that has no note or discount. |
-| `setQty(index, qty)` | `(number, number) => void` | Sets a line's quantity. `0` or less removes the line. |
-| `remove(index)` | `(number) => void` | Removes a line. |
-| `clear()` | `() => void` | Empties the current order. |
-| `hold(label)` | `(string) => void` | Parks the current order under `label` and clears the screen. |
-| `resume(id)` | `(string) => void` | Brings a held order back. Any order on screen is held first, so nothing is lost. |
-| `discardHeld(id)` | `(string) => void` | Deletes a held order. |
-| `checkout(payments)` | `(Payment[]) => Order` | Completes the sale through `orders.complete`, calculates change and loyalty points, then clears the cart. |
-
-Also exported: `defaultOptions(product)`, which returns the one-tap default options for a product.
-
-### Orders: `useOrdersStore`
-
-| Member | Type | Description |
-|---|---|---|
-| `orders` | `Order[]` | Completed and refunded orders, newest first. |
-| `nextNumber` | `number` | The next order number. |
-| `byId` | `Map<string, Order>` | Order lookup by id. |
-| `topSellers(days, limit?)` | `(number, number = 8) => TopSeller[]` | Best-selling active products by quantity over the last `days` days. Powers the **Top sellers** strip. |
-| `complete(draft)` | `(NewOrder) => Order` | Saves an order with its number, time, staff and shift. Deducts stock and updates the customer's spend and points. |
-| `refund(id, reason, restock)` | `(string, string, boolean) => void` | Marks a completed order as refunded, records who and why, returns items to stock if `restock`, and reverses the customer's spend and points. |
-| `clearAll()` | `() => void` | Deletes all orders. |
-| `loadDemo()` | `() => void` | Replaces orders with 14 days of sample sales. |
-
-Also exported: `rankProducts(orders, products, since)`, a pure function used by `topSellers` and the unit tests.
-
-### Customers: `useCustomersStore`
-
-| Member | Type | Description |
-|---|---|---|
-| `customers` | `Customer[]` | All customers, newest first. |
-| `byId` | `Map<string, Customer>` | Customer lookup by id. |
-| `search(q)` | `(string) => Customer[]` | Matches name, phone (spaces ignored) or email. An empty query returns everyone. |
-| `save(data)` | `({ name, phone, email, note, id? }) => Customer` | Creates a customer, or updates one if `id` is given. |
-| `remove(id)` | `(string) => void` | Deletes a customer. Their orders stay in history. |
-| `recordPurchase(id, total, points, sign?)` | `(string, number, number, 1 \| -1) => void` | Adds a purchase to the customer's totals, or reverses one with `sign = -1`. Called by `orders.complete` and `orders.refund`. |
-| `reset()` | `() => void` | Deletes all customers. |
-
-### Shifts: `useShiftStore`
-
-| Member | Type | Description |
-|---|---|---|
-| `shifts` | `Shift[]` | All shifts, newest first. |
-| `current` | `Shift \| null` | The open shift. A shift must be open to take payment. |
-| `history` | `Shift[]` | Closed shifts. |
-| `open(openingFloat)` | `(number) => void` | Opens a shift with the cash counted in the drawer. |
-| `moveCash(type, amount, reason)` | `('in' \| 'out', number, string) => void` | Records cash added to or taken from the drawer. |
-| `summary(shift)` | `(Shift) => ShiftSummary` | Orders, refunds, takings by payment method, and **expected cash**. |
-| `close(countedCash, note)` | `(number, string) => void` | Closes the shift and stores expected vs counted cash. |
-| `reset()` | `() => void` | Deletes all shifts. |
-
-Expected cash = opening cash + cash sales (minus change) − cash refunds + cash in − cash out.
-
-### Settings: `useSettingsStore`
-
-| Member | Type | Description |
-|---|---|---|
-| `s` | `Settings` | Store name, address, currency, decimals, tax, service charge, receipt footer, theme, loyalty rate and top-seller period. Edit fields directly; changes save automatically. |
-| `money(n)` | `(number) => string` | Formats an amount in the store's currency, e.g. `$3.75` or `LAK 25,000`. |
-| `round(n)` | `(number) => number` | Rounds to the currency's decimals. |
-| `isDark` | `boolean` | Whether the dark theme is active. |
-| `toggleTheme()` | `() => void` | Switches between light and dark. |
-| `reset()` | `() => void` | Restores default settings. |
-
-### Toasts: `useToastStore`
-
-| Member | Type | Description |
-|---|---|---|
-| `toasts` | `Toast[]` | Messages on screen (at most 4). |
-| `show(message, tone?, ms?)` | `(string, 'default' \| 'success' \| 'error', number = 2200) => void` | Shows a message that hides itself after `ms` milliseconds. |
-| `dismiss(id)` | `(number) => void` | Hides a message. |
-
-### Helpers: `src/utils/pos.ts`
-
-| Function | Description |
-|---|---|
-| `computeTotals(lines, discount, { taxRate, serviceRate, decimals })` | Order totals. Line discounts apply first, then the order discount, then the service charge. Tax applies to the discounted amount plus service. |
-| `lineTotal(line)` | `unitPrice × qty × (1 − discountPct / 100)`. |
-| `lineKey(productId, options)` | Stable key for a product with a set of options, in any order. Used to merge identical lines. |
-| `netCash(payments, change)` | Cash kept from an order (cash paid minus change). |
-| `quickCashAmounts(due, decimals)` | Suggested cash buttons: the exact amount, then round note values. |
-| `roundTo(n, decimals)` | Rounds a number. |
-| `startOfDay(ts)` | Midnight (local time) for a timestamp. |
-| `downloadCsv(filename, rows)` | Downloads rows as a CSV file. Does nothing in the embedded preview. |
-| `uid()` | Short unique id. |
-| `clone(value)` | Deep copy of plain data. Safe for Vue reactive objects. |
-
-### Storage keys
-
-All data is saved as JSON in `localStorage` with the prefix `sunpos:` (helpers in `src/composables/persisted.ts`).
-
-| Key | Contents |
-|---|---|
-| `sunpos:settings` | `Settings` |
-| `sunpos:staff` | `Staff[]` |
-| `sunpos:categories` | `Category[]` |
-| `sunpos:products` | `Product[]` |
-| `sunpos:stock-moves` | `StockMove[]` |
-| `sunpos:customers` | `Customer[]` |
-| `sunpos:orders` | `Order[]` |
-| `sunpos:shifts` | `Shift[]` |
-| `sunpos:cart` | The current order |
-| `sunpos:held` | `HeldOrder[]` |
-| `sunpos:session-user` | Signed-in staff id (in `sessionStorage`, so closing the tab locks the till) |
-
-**Settings → Export backup** saves all of these, except the cart and the signed-in user, to one JSON file in this format:
-`{ "app": "sun-pos", "version": 1, "at": <timestamp>, "data": { "<key>": ... } }`.
+- Changes are saved to **`.mock-db.json`** in the project root, so they survive a restart. This file is git-ignored.
+- Run **`npm run mock:reset`** (or delete the file) to start again from the JSON seed files.
+- Demo sales in `orders.json` are shifted in time when the data is seeded, so the newest sale is always today.
+- Every mock response has an `X-Mock-Api: sun-pos` header, so you can tell whether you're talking to the mock.
+- If a request fails, the mock undoes any partial changes, like a database transaction.
 
 ---
 
-## Part 2. Planned REST API (not built yet)
-
-> **Status: proposal.** This is a design for a future backend. Nothing below is implemented. Each endpoint maps to a
-> store function from Part 1, so the frontend can switch from `localStorage` to the server one store at a time.
+## REST API reference
 
 ### Conventions
 
-- Base URL: `/api/v1`
-- JSON requests and responses. Money is a decimal number in the store's currency. Times are ISO 8601 strings.
-- Auth: `POST /auth/login` with a PIN returns a token. Send it as `Authorization: Bearer <token>`.
-- Roles: 🔒 marks manager-only endpoints. Everything else is available to cashiers too.
-- Errors: `{ "error": { "code": "PIN_TAKEN", "message": "That PIN is already used" } }` with a 4xx status.
-- Lists accept `?limit=` and `?cursor=` for paging.
+- **Base URL:** `/api/v1`. All bodies are JSON (`Content-Type: application/json`).
+- **Authentication:** `POST /auth/login` returns a token. Send it on every other request as
+  `Authorization: Bearer <token>`.
+- **Access** in the tables below: **public** needs no token, **staff** means any signed-in user, **manager** means
+  role `admin`. A cashier calling a manager endpoint gets `403`.
+- **Times** are epoch milliseconds (`1790268654217`). **Money** is a number in the store currency, rounded to
+  `settings.decimals` places.
+- **Ids** are strings chosen by the server, except the optional checkout `id` (see [Checkout](#checkout)).
+- **Status codes:** `200` OK, `201` created, `204` no content, `400` invalid input, `401` not signed in or wrong PIN,
+  `403` not allowed, `404` not found, `405` wrong method, `409` conflict with the current state.
+- **Errors** always look like this:
 
-### Auth and staff
+  ```json
+  { "error": { "code": "OUT_OF_STOCK", "message": "Only 3 Blueberry Muffin in stock" } }
+  ```
 
-| Method | Path | Maps to | Description |
-|---|---|---|---|
-| `POST` | `/auth/login` | `auth.login` | Body `{ "pin": "1234" }`. Returns `{ token, user }`. |
-| `POST` | `/auth/logout` | `auth.logout` | Ends the session. |
-| `GET` | `/auth/me` | `auth.user` | The signed-in staff member. |
-| `GET` | `/staff` 🔒 | `auth.staff` | List staff (PINs are never returned). |
-| `POST` | `/staff` 🔒 | `auth.saveStaff` | Create a staff member. |
-| `PATCH` | `/staff/:id` 🔒 | `auth.saveStaff` | Update name, PIN or role. |
-| `DELETE` | `/staff/:id` 🔒 | `auth.removeStaff` | Delete a staff member. |
+  The app shows `message` to the user, so write it for staff. `code` is for programs:
 
-### Catalog
+  | Code                   | Status | Meaning                                                                           |
+  | ---------------------- | ------ | --------------------------------------------------------------------------------- |
+  | `VALIDATION_ERROR`     | 400    | A field is missing or invalid (the message names it).                             |
+  | `EMPTY_ORDER`          | 400    | An order or held order has no items.                                              |
+  | `PRODUCT_UNAVAILABLE`  | 400    | A product doesn't exist or is hidden.                                             |
+  | `INVALID_OPTION`       | 400    | Missing required option, unknown choice, or two choices in a single-choice group. |
+  | `INSUFFICIENT_PAYMENT` | 400    | Payments add up to less than the total.                                           |
+  | `OVERPAID_NON_CASH`    | 400    | Card and QR payments add up to more than the total (only cash can give change).   |
+  | `INVALID_PIN_FORMAT`   | 400    | A PIN isn't 4–6 digits.                                                           |
+  | `INVALID_BACKUP`       | 400    | The uploaded file isn't a Sun POS backup.                                         |
+  | `INVALID_PIN`          | 401    | Wrong PIN at sign-in.                                                             |
+  | `UNAUTHORIZED`         | 401    | Missing or expired token. The app returns to the lock screen.                     |
+  | `FORBIDDEN`            | 403    | Manager-only endpoint.                                                            |
+  | `NOT_FOUND`            | 404    | Unknown id or endpoint.                                                           |
+  | `METHOD_NOT_ALLOWED`   | 405    | The path exists but not with this method.                                         |
+  | `NO_OPEN_SHIFT`        | 409    | Checkout, cash moves or closing need an open shift.                               |
+  | `SHIFT_ALREADY_OPEN`   | 409    | Only one shift can be open.                                                       |
+  | `OUT_OF_STOCK`         | 409    | Not enough stock for the order.                                                   |
+  | `ALREADY_REFUNDED`     | 409    | The order was refunded before.                                                    |
+  | `STOCK_NOT_TRACKED`    | 409    | Stock adjustment on a product with `stock: null`.                                 |
+  | `CATEGORY_NOT_EMPTY`   | 409    | Delete or move the category's products first.                                     |
+  | `PIN_TAKEN`            | 409    | Another staff member has that PIN.                                                |
+  | `BARCODE_TAKEN`        | 409    | Another product has that barcode.                                                 |
+  | `LAST_MANAGER`         | 409    | The last manager can't be removed or made a cashier.                              |
+  | `CANNOT_DELETE_SELF`   | 409    | Staff can't delete their own account.                                             |
 
-| Method | Path | Maps to | Description |
-|---|---|---|---|
-| `GET` | `/categories` | `catalog.categories` | List categories. |
-| `POST` | `/categories` 🔒 | `catalog.saveCategory` | Create a category. |
-| `PATCH` | `/categories/:id` 🔒 | `catalog.saveCategory` | Update a category. |
-| `DELETE` | `/categories/:id` 🔒 | `catalog.removeCategory` | Delete an empty category (`409` if it has products). |
-| `GET` | `/products` | `catalog.products` | List products. Filters: `?categoryId=`, `?active=true`, `?q=`. |
-| `GET` | `/products/lookup?code=` | `catalog.findByCode` | Find a product by barcode or SKU. |
-| `GET` | `/products/:id` | `catalog.byId` | Get one product. |
-| `POST` | `/products` 🔒 | `catalog.saveProduct` | Create a product, including option groups. |
-| `PATCH` | `/products/:id` 🔒 | `catalog.saveProduct` | Update a product. |
-| `DELETE` | `/products/:id` 🔒 | `catalog.removeProduct` | Delete a product. |
+### Auth
 
-### Stock
+| Method | Path           | Access | Body / query        | Response                       |
+| ------ | -------------- | ------ | ------------------- | ------------------------------ |
+| `POST` | `/auth/login`  | public | `{ "pin": "1234" }` | `{ token, user: StaffPublic }` |
+| `POST` | `/auth/logout` | staff  | —                   | `204`                          |
+| `GET`  | `/auth/me`     | staff  | —                   | `StaffPublic`                  |
 
-| Method | Path | Maps to | Description |
-|---|---|---|---|
-| `GET` | `/stock/low` | `catalog.lowStock` | Products at or below their alert level. |
-| `POST` | `/stock/adjustments` 🔒 | `catalog.adjustStock` | Body `{ productId, delta, reason }`. |
-| `GET` | `/stock/movements` 🔒 | `catalog.stockMoves` | Movement log. Filters: `?productId=`, `?from=`, `?to=`. |
+```json
+// POST /auth/login → 200
+{ "token": "tok-mfx…", "user": { "id": "staff-admin", "name": "Manager", "role": "admin" } }
+```
 
-### Orders and checkout
+### Staff
 
-| Method | Path | Maps to | Description |
-|---|---|---|---|
-| `POST` | `/orders` | `cart.checkout` → `orders.complete` | Complete a sale. The server recalculates totals, assigns the order number, deducts stock and awards points. |
-| `GET` | `/orders` | `orders.orders` | List orders. Filters: `?from=`, `?to=`, `?status=`, `?q=`. |
-| `GET` | `/orders/:id` | `orders.byId` | Get one order (for reprinting a receipt). |
-| `POST` | `/orders/:id/refund` 🔒 | `orders.refund` | Body `{ reason, restock }`. |
-| `GET` | `/orders/top-sellers?days=30&limit=8` | `orders.topSellers` | Best sellers for the Sell screen. |
-| `GET` | `/held-orders` | `cart.held` | Held orders, shared across tills. |
-| `POST` | `/held-orders` | `cart.hold` | Park an order. |
-| `DELETE` | `/held-orders/:id` | `cart.resume` / `cart.discardHeld` | Take a held order off the list (resume or discard). |
+PINs are never returned.
 
-Example request for `POST /orders`:
+| Method   | Path         | Access  | Body                                                      | Response                                 |
+| -------- | ------------ | ------- | --------------------------------------------------------- | ---------------------------------------- |
+| `GET`    | `/staff`     | manager | —                                                         | `StaffPublic[]`                          |
+| `POST`   | `/staff`     | manager | `{ name, role: "admin" \| "cashier", pin }`               | `201 StaffPublic`                        |
+| `PATCH`  | `/staff/:id` | manager | any of `{ name, role, pin }` (leave `pin` out to keep it) | `StaffPublic`                            |
+| `DELETE` | `/staff/:id` | manager | —                                                         | `204` (also ends that person's sessions) |
+
+### Settings
+
+| Method  | Path        | Access                                        | Body                  | Response   |
+| ------- | ----------- | --------------------------------------------- | --------------------- | ---------- |
+| `GET`   | `/settings` | public (the lock screen shows the store name) | —                     | `Settings` |
+| `PATCH` | `/settings` | manager                                       | any `Settings` fields | `Settings` |
+
+`Settings`: `storeName`, `address`, `phone`, `currency` (ISO code such as `USD` or `LAK`), `locale`, `decimals` (0–4),
+`taxLabel`, `taxRate` (%), `serviceRate` (%), `receiptFooter`, `pointsPerUnit` (loyalty points per 1 currency unit),
+`topSellerDays`.
+
+### Categories
+
+| Method   | Path              | Access  | Body               | Response                           |
+| -------- | ----------------- | ------- | ------------------ | ---------------------------------- |
+| `GET`    | `/categories`     | staff   | —                  | `Category[]`                       |
+| `POST`   | `/categories`     | manager | `{ name, tint }`   | `201 Category`                     |
+| `PATCH`  | `/categories/:id` | manager | `{ name?, tint? }` | `Category`                         |
+| `DELETE` | `/categories/:id` | manager | —                  | `204`, or `409 CATEGORY_NOT_EMPTY` |
+
+`tint` is one of `sage`, `amber`, `rose`, `sky`, `lilac`, `sand`.
+
+### Products
+
+| Method   | Path               | Access  | Body / query                  | Response            |
+| -------- | ------------------ | ------- | ----------------------------- | ------------------- |
+| `GET`    | `/products`        | staff   | `?q=&categoryId=&active=true` | `Product[]`         |
+| `GET`    | `/products/lookup` | staff   | `?code=` (barcode or SKU)     | `Product`, or `404` |
+| `GET`    | `/products/:id`    | staff   | —                             | `Product`           |
+| `POST`   | `/products`        | manager | `Product` without `id`        | `201 Product`       |
+| `PATCH`  | `/products/:id`    | manager | any `Product` fields          | `Product`           |
+| `DELETE` | `/products/:id`    | manager | —                             | `204`               |
 
 ```json
 {
+  "id": "prd-4",
+  "name": "Café Latte",
+  "categoryId": "cat-coffee",
+  "emoji": "🥛",
+  "price": 3.75,
+  "cost": 0.9,
+  "sku": "SKU-004",
+  "barcode": "8850000000004",
+  "stock": null,
+  "lowStockAt": 5,
+  "active": true,
+  "options": [
+    {
+      "id": "size",
+      "name": "Size",
+      "multiple": false,
+      "required": true,
+      "choices": [
+        { "name": "Regular", "price": 0 },
+        { "name": "Large", "price": 0.5 }
+      ]
+    }
+  ]
+}
+```
+
+`stock: null` means stock isn't tracked (made-to-order items).
+
+### Stock
+
+| Method | Path                 | Access  | Body / query                                                   | Response                                         |
+| ------ | -------------------- | ------- | -------------------------------------------------------------- | ------------------------------------------------ |
+| `GET`  | `/stock/low`         | staff   | —                                                              | Active tracked products at or below `lowStockAt` |
+| `POST` | `/stock/adjustments` | manager | `{ productId, delta, reason }` (`delta` ≠ 0, negative removes) | `{ product, move: StockMove }`                   |
+| `GET`  | `/stock/movements`   | manager | `?productId=&limit=50`                                         | `StockMove[]`, newest first                      |
+
+Sales and refunds also create stock movements (reason `Sale #221`, `Refund #221`).
+
+### Checkout
+
+`POST /orders` (staff) completes a sale. The client sends **only ids, choices, quantities and payments**. The server
+looks up prices, works out totals, checks stock, deducts stock, assigns the order number and awards loyalty points.
+
+```json
+// POST /orders
+{
+  "id": "mfx8k2a9c1",
   "orderType": "dine-in",
   "table": "5",
-  "customerId": "c_123",
   "note": "",
+  "customerId": "cus-2",
   "orderDiscount": { "type": "percent", "value": 10 },
   "lines": [
     {
       "productId": "prd-4",
       "qty": 2,
-      "options": [{ "group": "Size", "name": "Large" }],
+      "options": [
+        { "group": "Size", "name": "Large" },
+        { "group": "Temperature", "name": "Iced" }
+      ],
       "note": "less ice",
       "discountPct": 0
     }
   ],
-  "payments": [{ "method": "cash", "amount": 10 }]
+  "payments": [{ "method": "cash", "amount": 20 }]
 }
 ```
 
-The client sends only the ids, choices and quantities. The server looks up prices, so a changed price in the browser
-can't alter what's charged. The response is the full `Order`, including `number`, totals, `change` and `pointsEarned`.
+Response `201`: the full `Order`, including `number`, `lines` (with names and prices at the time of sale), `subtotal`,
+`discount`, `service`, `tax`, `total`, `tendered`, `change`, `pointsEarned`, `staffName` and `shiftId`.
+
+Rules:
+
+1. A shift must be open (`409 NO_OPEN_SHIFT`).
+2. **Retries are safe.** `id` is optional and chosen by the client. If an order with that id exists, the server returns
+   it with `200` and doesn't charge again. The app reuses the same id when it retries after a network error.
+3. Totals: item discounts first, then the order discount, then the service charge. Tax is charged on the discounted
+   amount plus service. Everything is rounded to `settings.decimals` (see `computeTotals` in `src/utils/pos.ts`).
+4. Payments must cover the total. Only cash can exceed it (the difference is `change`).
+5. `payments[].method` is `cash`, `card` or `qr`. Split payments are allowed.
+6. `pointsEarned = floor(total × settings.pointsPerUnit)` when a customer is attached.
+
+### Orders
+
+| Method | Path                  | Access  | Query / body                                                             | Response                                       |
+| ------ | --------------------- | ------- | ------------------------------------------------------------------------ | ---------------------------------------------- |
+| `GET`  | `/orders`             | staff   | `?from=&to=&status=completed\|refunded&q=&customerId=&limit=50&offset=0` | `{ items: Order[], total }`, newest first      |
+| `GET`  | `/orders/:id`         | staff   | —                                                                        | `Order`                                        |
+| `POST` | `/orders/:id/refund`  | manager | `{ reason, restock: true }`                                              | `Order` with `status: "refunded"` and `refund` |
+| `GET`  | `/orders/top-sellers` | staff   | `?days=30&limit=8`                                                       | `[{ product, qty, revenue }]`, best first      |
+
+`q` matches the order number (`221` or `#221`), table, customer name, staff name or item names. `from` is inclusive,
+`to` is exclusive. A refund puts items back into stock when `restock` is true, reverses the customer's spend and points,
+and records the open shift (cash refunds come out of that drawer).
+
+### Held orders
+
+Parked orders are shared across tills.
+
+| Method   | Path               | Access | Body                                                             | Response                                                   |
+| -------- | ------------------ | ------ | ---------------------------------------------------------------- | ---------------------------------------------------------- |
+| `GET`    | `/held-orders`     | staff  | —                                                                | `HeldOrder[]`                                              |
+| `POST`   | `/held-orders`     | staff  | `{ label, lines, discount, orderType, table, note, customerId }` | `201 HeldOrder`                                            |
+| `DELETE` | `/held-orders/:id` | staff  | —                                                                | The removed `HeldOrder` (used for both resume and discard) |
 
 ### Customers
 
-| Method | Path | Maps to | Description |
-|---|---|---|---|
-| `GET` | `/customers?q=` | `customers.search` | Search by name, phone or email. |
-| `GET` | `/customers/:id` | `customers.byId` | Customer with totals and points. |
-| `GET` | `/customers/:id/orders` | — | The customer's order history. |
-| `POST` | `/customers` | `customers.save` | Create a customer. |
-| `PATCH` | `/customers/:id` | `customers.save` | Update a customer. |
-| `DELETE` | `/customers/:id` 🔒 | `customers.remove` | Delete a customer. |
+| Method   | Path                    | Access  | Body / query                   | Response                          |
+| -------- | ----------------------- | ------- | ------------------------------ | --------------------------------- |
+| `GET`    | `/customers`            | staff   | `?q=` (name, phone or email)   | `Customer[]`                      |
+| `GET`    | `/customers/:id`        | staff   | —                              | `Customer`                        |
+| `GET`    | `/customers/:id/orders` | staff   | `?limit=20`                    | `Order[]`                         |
+| `POST`   | `/customers`            | staff   | `{ name, phone, email, note }` | `201 Customer`                    |
+| `PATCH`  | `/customers/:id`        | staff   | any of those fields            | `Customer`                        |
+| `DELETE` | `/customers/:id`        | manager | —                              | `204` (orders keep their history) |
+
+`points`, `totalSpent` and `visits` are maintained by the server from sales and refunds.
 
 ### Shifts and cash drawer
 
-| Method | Path | Maps to | Description |
-|---|---|---|---|
-| `GET` | `/shifts/current` | `shift.current` + `shift.summary` | The open shift with its live summary. |
-| `POST` | `/shifts` | `shift.open` | Body `{ openingFloat }`. `409` if a shift is already open. |
-| `POST` | `/shifts/current/cash-moves` | `shift.moveCash` | Body `{ type: "in" \| "out", amount, reason }`. |
-| `POST` | `/shifts/current/close` | `shift.close` | Body `{ countedCash, note }`. Returns expected vs counted. |
-| `GET` | `/shifts` | `shift.history` | Past shifts. |
+| Method | Path                         | Access | Body                                      | Response                                                          |
+| ------ | ---------------------------- | ------ | ----------------------------------------- | ----------------------------------------------------------------- |
+| `GET`  | `/shifts/current`            | staff  | —                                         | `{ shift, summary }`, or `null` if none is open                   |
+| `POST` | `/shifts`                    | staff  | `{ openingFloat }`                        | `201 { shift, summary }`                                          |
+| `POST` | `/shifts/current/cash-moves` | staff  | `{ type: "in" \| "out", amount, reason }` | `{ shift, summary }`                                              |
+| `POST` | `/shifts/current/close`      | staff  | `{ countedCash, note }`                   | `{ shift, summary }` with `expectedCash` and `countedCash` stored |
+| `GET`  | `/shifts`                    | staff  | `?limit=30`                               | Closed shifts, `[{ shift, summary }]`                             |
 
-### Reports 🔒
+`summary.expectedCash = openingFloat + cash sales (minus change) − cash refunds + cash in − cash out.`
+It also includes the order and refund counts, gross sales and takings by payment method.
 
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/reports/summary?from=&to=` | Net sales, orders, average order, items sold, tax, discounts, estimated profit, refunds. |
-| `GET` | `/reports/sales-by-time?from=&to=&bucket=hour\|day` | Sales chart data. |
-| `GET` | `/reports/products?from=&to=` | Quantity and revenue per product. |
-| `GET` | `/reports/breakdown?from=&to=&by=payment\|category\|orderType\|staff` | Sales grouped by the chosen field. |
-| `GET` | `/reports/orders.csv?from=&to=` | Orders export. |
+### Reports (manager)
 
-These are calculated in the browser in `src/views/ReportsView.vue` today.
+All take `?from=&to=` (epoch ms, `to` exclusive). The app sends the shop's local day boundaries.
 
-### Settings and data
+| Method | Path                     | Extra query                              | Response                                                                            |
+| ------ | ------------------------ | ---------------------------------------- | ----------------------------------------------------------------------------------- |
+| `GET`  | `/reports/summary`       | —                                        | `{ net, orders, avg, items, tax, discounts, profit, margin, refunds, refundCount }` |
+| `GET`  | `/reports/sales-by-time` | `bucket=hour\|day`, `tz=Asia/Vientiane`  | `[{ start, label, value, count }]` (hours 6–22, or one per day)                     |
+| `GET`  | `/reports/products`      | `limit=100`                              | `[{ productId, name, emoji, qty, revenue }]`                                        |
+| `GET`  | `/reports/breakdown`     | `by=payment\|category\|orderType\|staff` | `[{ key, value, pct }]`                                                             |
 
-| Method | Path | Maps to | Description |
-|---|---|---|---|
-| `GET` | `/settings` | `settings.s` | Store settings. |
-| `PATCH` | `/settings` 🔒 | `settings.s` | Update settings. |
-| `GET` | `/backup` 🔒 | Export backup | Full data export. |
-| `POST` | `/backup` 🔒 | Import backup | Restore from an export. |
+`profit` is an estimate: revenue before tax and service, minus each product's current `cost`.
 
-### Live updates (planned)
+### Backup and admin (manager)
 
-For kitchen displays and multiple tills, a WebSocket at `/api/v1/events` would push `order.created`,
-`order.refunded`, `held-order.changed`, `stock.low` and `shift.closed` events.
+| Method | Path           | Body                                                                | Response                                                                                                                           |
+| ------ | -------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`  | `/backup`      | —                                                                   | `{ app: "sun-pos", version: 2, at, data: { settings, staff, categories, products, stockMoves, customers, orders, shifts, held } }` |
+| `POST` | `/backup`      | A backup file (version 1 files from the browser-only app also work) | `204`                                                                                                                              |
+| `POST` | `/admin/reset` | `{ scope: "sales" \| "demo" \| "all" }`                             | `204`                                                                                                                              |
 
-### Hardware (planned)
+`sales` clears orders, shifts, held orders and stock movements. `demo` does the same, then loads the demo sales. `all`
+restores all the seed data. A real backend may want to restrict or remove `/admin/reset` in production.
 
-A small local print service (for example `http://localhost:9100`) would accept `POST /print/receipt`,
-`POST /print/kitchen` and `POST /drawer/open`, and send ESC/POS commands to the receipt printer and cash drawer.
+---
+
+## Building your backend
+
+1. **Implement the endpoints above** with the same paths, bodies and status codes. Use `src/mock/router.ts` as the
+   reference: each route is a short function showing the exact rules.
+2. **Keep the business rules on the server:** pricing, totals, stock, order numbers, points, shift cash-up and roles.
+   Never trust prices or totals from the client.
+3. **Store money precisely:** use `DECIMAL`, or whole minor units (cents, or kip with no decimals). Don't use floats.
+4. **Do checkout in one transaction:** number the order, save it, deduct stock and update the customer together.
+   Use the client `id` to make retries safe.
+5. **Hash PINs** (bcrypt or argon2) and **limit wrong attempts**. The mock does neither.
+6. **Check it with the contract tests.** [`src/__tests__/api.spec.ts`](../src/__tests__/api.spec.ts) runs these
+   scenarios against the mock: sign-in and roles, server-side pricing, options, retries, stock, payments, loyalty
+   points, refunds, cash-up and reports. Run the same requests against your backend and compare.
+7. **Switch the app over** with `VITE_API_PROXY` (development) or `VITE_API_URL` (production).
+
+## Frontend reference
+
+The screens use the Pinia stores. Each store keeps a cached copy of its data and calls the API through `src/api`.
+
+| Store               | Main functions                                                                                                                        | Endpoints used                              |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| `useAuthStore`      | `init`, `login`, `logout`, `loadStaff`, `saveStaff`, `removeStaff`                                                                    | `/auth/*`, `/staff`                         |
+| `useSettingsStore`  | `load`, `save`, `money`, `round`, `toggleTheme` (theme stays on the device)                                                           | `/settings`                                 |
+| `useCatalogStore`   | `load`, `refreshProducts`, `findByCode`, `saveProduct`, `removeProduct`, `saveCategory`, `removeCategory`, `adjustStock`, `loadMoves` | `/categories`, `/products`, `/stock/*`      |
+| `useCartStore`      | `add`, `setQty`, `remove`, `clear`, `hold`, `resume`, `discardHeld`, `checkout`                                                       | `/held-orders`, `POST /orders`              |
+| `useOrdersStore`    | `loadTopSellers`, `refund`                                                                                                            | `/orders/top-sellers`, `/orders/:id/refund` |
+| `useCustomersStore` | `load`, `search`, `save`, `remove`, `refresh`                                                                                         | `/customers`                                |
+| `useShiftStore`     | `load`, `open`, `moveCash`, `close`                                                                                                   | `/shifts/*`                                 |
+| `useAppStore`       | `load` (everything needed after sign-in)                                                                                              | several                                     |
+
+The Orders, Reports, Shift history and customer history screens call `api.*` directly for their lists.

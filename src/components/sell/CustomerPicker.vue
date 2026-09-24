@@ -23,6 +23,11 @@ watch(open, (o) => {
 
 const results = computed(() => customers.search(q.value).slice(0, 30))
 
+async function addAndPick(d: Parameters<typeof customers.save>[0]) {
+  const c = await customers.save(d)
+  pick(c.id)
+}
+
 function pick(id: string | null) {
   cart.state.customerId = id
   open.value = false
@@ -35,7 +40,7 @@ function pick(id: string | null) {
       v-if="adding"
       submit-label="Add & select"
       @cancel="adding = false"
-      @submit="(d) => pick(customers.save(d).id)"
+      @submit="addAndPick"
     />
     <div v-else class="space-y-3">
       <div class="flex gap-2">

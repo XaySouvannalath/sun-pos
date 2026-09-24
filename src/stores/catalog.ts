@@ -1,14 +1,12 @@
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import { persisted } from '@/composables/persisted'
-import { seedCategories, seedProducts } from '@/data/seed'
-import { clone, uid } from '@/utils/pos'
+import { ApiError, api } from '@/api'
 import type { Category, Product, StockMove } from '@/types'
 
 export const useCatalogStore = defineStore('catalog', () => {
-  const categories = persisted<Category[]>('categories', () => clone(seedCategories))
-  const products = persisted<Product[]>('products', () => clone(seedProducts))
-  const stockMoves = persisted<StockMove[]>('stock-moves', () => [])
+  const categories = ref<Category[]>([])
+  const products = ref<Product[]>([])
+  const stockMoves = ref<StockMove[]>([])
 
   const byId = computed(() => new Map(products.value.map((p) => [p.id, p])))
   const categoryById = computed(() => new Map(categories.value.map((c) => [c.id, c])))
@@ -17,6 +15,24 @@ export const useCatalogStore = defineStore('catalog', () => {
     products.value.filter((p) => p.active && p.stock !== null && p.stock <= p.lowStockAt),
   )
 
+  async function load() {
+    ;[categories.value, products.value] = await Promise.all([
+      api.categories.list(),
+      api.products.list(),
+    ])
+  }
+
+  async function refreshProducts() {
+    products.value = await api.products.list()
+  }
+
+  function replaceProduct(p: Product) {
+    const i = products.value.findIndex((x) => x.id === p.id)
+    if (i >= 0) products.value[i] = p
+    else products.value.push(p)
+  }
+
+  /** Barcode or SKU lookup from the loaded catalog (instant, for scanners). */
   function findByCode(code: string): Product | undefined {
     const c = code.trim().toLowerCase()
     if (!c) return undefined
@@ -25,19 +41,10 @@ export const useCatalogStore = defineStore('catalog', () => {
     )
   }
 
-  function saveProduct(p: Product) {
-    const i = products.value.findIndex((x) => x.id === p.id)
-    if (i >= 0) products.value[i] = p
-    else products.value.push(p)
-  }
-
-  function removeProduct(id: string) {
-    products.value = products.value.filter((p) => p.id !== id)
-  }
-
+  /** A blank product for the editor. An empty id means it has not been saved yet. */
   function newProduct(): Product {
     return {
-      id: uid(),
+      id: '',
       name: '',
       categoryId: categories.value[0]?.id ?? '',
       price: 0,
@@ -52,32 +59,47 @@ export const useCatalogStore = defineStore('catalog', () => {
     }
   }
 
-  function saveCategory(c: Category) {
-    const i = categories.value.findIndex((x) => x.id === c.id)
-    if (i >= 0) categories.value[i] = c
-    else categories.value.push(c)
+  async function saveProduct(p: Product): Promise<Product> {
+    const { id, ...body } = p
+    const saved = id ? await api.products.update(id, body) : await api.products.create(body)
+    replaceProduct(saved)
+    return saved
   }
 
-  function removeCategory(id: string): string | null {
-    if (products.value.some((p) => p.categoryId === id))
-      return 'Move or delete the products in this category first'
-    categories.value = categories.value.filter((c) => c.id !== id)
-    return null
+  async function removeProduct(id: string) {
+    await api.products.remove(id)
+    products.value = products.value.filter((p) => p.id !== id)
   }
 
-  /** Change stock for a tracked product and log the movement. */
-  function adjustStock(productId: string, delta: number, reason: string, by: string) {
-    const p = byId.value.get(productId)
-    if (!p || p.stock === null || delta === 0) return
-    p.stock = p.stock + delta
-    stockMoves.value.unshift({ id: uid(), at: Date.now(), productId, delta, reason, by })
-    if (stockMoves.value.length > 1000) stockMoves.value.length = 1000
+  async function saveCategory(c: Category): Promise<Category> {
+    const { id, ...body } = c
+    const saved = id ? await api.categories.update(id, body) : await api.categories.create(body)
+    const i = categories.value.findIndex((x) => x.id === saved.id)
+    if (i >= 0) categories.value[i] = saved
+    else categories.value.push(saved)
+    return saved
   }
 
-  function reset() {
-    categories.value = clone(seedCategories)
-    products.value = clone(seedProducts)
-    stockMoves.value = []
+  /** Returns an error message (e.g. the category still has products), or null on success. */
+  async function removeCategory(id: string): Promise<string | null> {
+    try {
+      await api.categories.remove(id)
+      categories.value = categories.value.filter((c) => c.id !== id)
+      return null
+    } catch (e) {
+      if (e instanceof ApiError) return e.message
+      throw e
+    }
+  }
+
+  async function adjustStock(productId: string, delta: number, reason: string) {
+    const { product, move } = await api.stock.adjust({ productId, delta, reason })
+    replaceProduct(product)
+    stockMoves.value.unshift(move)
+  }
+
+  async function loadMoves(limit = 40) {
+    stockMoves.value = await api.stock.movements({ limit })
   }
 
   return {
@@ -88,13 +110,15 @@ export const useCatalogStore = defineStore('catalog', () => {
     categoryById,
     activeProducts,
     lowStock,
+    load,
+    refreshProducts,
     findByCode,
+    newProduct,
     saveProduct,
     removeProduct,
-    newProduct,
     saveCategory,
     removeCategory,
     adjustStock,
-    reset,
+    loadMoves,
   }
 })
