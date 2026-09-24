@@ -45,6 +45,10 @@ npm run format       # prettier
 npm run build:preview  # single-file preview at dist-preview/sun-pos.html (no print/downloads)
 ```
 
+## API
+
+See [docs/API.md](docs/API.md) for the functions the app uses today and the planned REST API for a future backend.
+
 ## Project structure
 
 ```
