@@ -38,6 +38,26 @@ async function saveSettings() {
   }
 }
 
+const themes = [
+  { id: 'light', label: 'Light' },
+  { id: 'dark', label: 'Dark' },
+  { id: 'system', label: 'Match device' },
+] as const
+
+const motions = [
+  { id: 'on', label: 'On' },
+  { id: 'off', label: 'Off' },
+  { id: 'system', label: 'Match device' },
+] as const
+
+const motionHelp = computed(() =>
+  settings.motion === 'system'
+    ? `Follows the device's "reduce motion" setting (currently ${settings.animate ? 'on' : 'off'}).`
+    : settings.motion === 'off'
+      ? 'Screens change instantly. Useful on slower devices or if movement is distracting.'
+      : 'Short animations show where items go and what changed.',
+)
+
 const currencies = [
   { code: 'USD', locale: 'en-US', decimals: 2, label: 'US Dollar ($)' },
   { code: 'LAK', locale: 'lo-LA', decimals: 0, label: 'Lao Kip (₭)' },
@@ -234,22 +254,48 @@ const confirmText = {
     </section>
 
     <section class="card space-y-4 p-5">
-      <h2 class="font-semibold">Sell screen & loyalty</h2>
-      <div class="grid gap-3 sm:grid-cols-3">
+      <div>
+        <h2 class="font-semibold">Display on this device</h2>
+        <p class="mt-1 text-sm text-ink-muted">
+          These apply straight away and only to this device, so each till can have its own.
+        </p>
+      </div>
+      <div class="grid gap-4 sm:grid-cols-2">
         <div>
-          <span class="label">Theme (this device)</span>
-          <div class="segmented">
+          <span id="theme-label" class="label">Theme</span>
+          <div class="segmented" role="group" aria-labelledby="theme-label">
             <button
-              v-for="t in ['light', 'dark', 'system'] as const"
-              :key="t"
-              class="capitalize"
-              :aria-pressed="settings.theme === t"
-              @click="settings.theme = t"
+              v-for="t in themes"
+              :key="t.id"
+              :aria-pressed="settings.theme === t.id"
+              @click="settings.theme = t.id"
             >
-              {{ t }}
+              {{ t.label }}
             </button>
           </div>
         </div>
+        <div>
+          <span id="motion-label" class="label">Animations</span>
+          <div class="segmented" role="group" aria-labelledby="motion-label">
+            <button
+              v-for="m in motions"
+              :key="m.id"
+              :aria-pressed="settings.motion === m.id"
+              @click="settings.motion = m.id"
+            >
+              {{ m.label }}
+            </button>
+          </div>
+          <p class="mt-1.5 text-xs text-ink-muted">
+            {{ motionHelp }}
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="card space-y-4 p-5">
+      <h2 class="font-semibold">Sell screen & loyalty</h2>
+      <div class="grid gap-3 sm:grid-cols-2">
         <div>
           <label class="label" for="s-top">Top sellers period (days)</label>
           <input

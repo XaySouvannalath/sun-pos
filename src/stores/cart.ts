@@ -72,6 +72,7 @@ export const useCartStore = defineStore('cart', () => {
       return
     }
     state.value.lines.push({
+      id: uid(),
       key,
       productId: p.id,
       name: p.name,

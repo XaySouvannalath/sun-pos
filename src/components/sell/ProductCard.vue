@@ -7,7 +7,7 @@ import { tintClasses } from '@/utils/tints'
 import type { Product } from '@/types'
 
 const props = defineProps<{ product: Product; inCart?: number }>()
-defineEmits<{ add: []; customize: [] }>()
+defineEmits<{ add: [el: HTMLElement]; customize: [] }>()
 
 const catalog = useCatalogStore()
 const settings = useSettingsStore()
@@ -27,9 +27,9 @@ const low = computed(
 <template>
   <div class="group relative">
     <button
-      class="card flex h-full w-full flex-col overflow-hidden text-left transition hover:border-primary/60 hover:shadow-sm active:scale-[0.98] disabled:opacity-50"
+      class="card lift flex h-full w-full flex-col overflow-hidden text-left hover:border-primary/60 active:scale-[0.98] disabled:opacity-50"
       :disabled="soldOut"
-      @click="$emit('add')"
+      @click="$emit('add', $event.currentTarget as HTMLElement)"
     >
       <div class="grid h-20 w-full place-items-center text-4xl" :class="tint.tile">
         <span aria-hidden="true">{{ product.emoji }}</span>

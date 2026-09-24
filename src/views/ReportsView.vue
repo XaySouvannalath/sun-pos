@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { Download } from 'lucide-vue-next'
+import AnimatedNumber from '@/components/ui/AnimatedNumber.vue'
 import { api } from '@/api'
 import { useSettingsStore } from '@/stores/settings'
 import { startOfDay } from '@/utils/pos'
@@ -130,24 +131,32 @@ function exportProducts() {
     <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
       <div class="card p-4">
         <p class="text-xs text-ink-muted">Net sales</p>
-        <p class="text-2xl font-bold">{{ settings.money(kpi.net) }}</p>
+        <p class="text-2xl font-bold">
+          <AnimatedNumber :value="kpi.net" :format="settings.money" from-zero :duration="600" />
+        </p>
         <p class="text-xs text-ink-muted">
           incl. {{ settings.s.taxLabel }} {{ settings.money(kpi.tax) }}
         </p>
       </div>
       <div class="card p-4">
         <p class="text-xs text-ink-muted">Orders</p>
-        <p class="text-2xl font-bold">{{ kpi.orders }}</p>
+        <p class="text-2xl font-bold">
+          <AnimatedNumber :value="kpi.orders" from-zero :duration="600" />
+        </p>
         <p class="text-xs text-ink-muted">{{ kpi.items }} items sold</p>
       </div>
       <div class="card p-4">
         <p class="text-xs text-ink-muted">Average order</p>
-        <p class="text-2xl font-bold">{{ settings.money(kpi.avg) }}</p>
+        <p class="text-2xl font-bold">
+          <AnimatedNumber :value="kpi.avg" :format="settings.money" from-zero :duration="600" />
+        </p>
         <p class="text-xs text-ink-muted">discounts {{ settings.money(kpi.discounts) }}</p>
       </div>
       <div class="card p-4">
         <p class="text-xs text-ink-muted">Est. gross profit</p>
-        <p class="text-2xl font-bold text-success">{{ settings.money(kpi.profit) }}</p>
+        <p class="text-2xl font-bold text-success">
+          <AnimatedNumber :value="kpi.profit" :format="settings.money" from-zero :duration="600" />
+        </p>
         <p class="text-xs text-ink-muted">
           {{ kpi.margin }}% margin · refunds {{ settings.money(kpi.refunds) }} ({{
             kpi.refundCount
@@ -160,7 +169,7 @@ function exportProducts() {
       <h2 class="mb-4 font-semibold">Sales by {{ chart.hourly ? 'hour' : 'day' }}</h2>
       <div class="flex h-52 items-end gap-1 sm:gap-2">
         <div
-          v-for="b in chart.buckets"
+          v-for="(b, bi) in chart.buckets"
           :key="b.label"
           class="group flex h-full flex-1 flex-col items-center justify-end gap-1"
         >
@@ -168,8 +177,12 @@ function exportProducts() {
             settings.money(b.value)
           }}</span>
           <div
-            class="w-full rounded-t-md bg-primary/70 transition group-hover:bg-primary"
-            :style="{ height: `${(b.value / chart.max) * 100}%`, minHeight: b.value ? '4px' : '0' }"
+            class="anim-grow-y w-full rounded-t-md bg-primary/70 transition-[height,background-color] duration-500 group-hover:bg-primary"
+            :style="{
+              height: `${(b.value / chart.max) * 100}%`,
+              minHeight: b.value ? '4px' : '0',
+              '--i': bi,
+            }"
             :title="`${b.label}: ${settings.money(b.value)} · ${b.count} orders`"
           />
           <span class="text-[10px] text-ink-muted">{{ b.label }}</span>
@@ -225,7 +238,10 @@ function exportProducts() {
               >
             </div>
             <div class="h-2 rounded-full bg-surface-2">
-              <div class="h-2 rounded-full bg-primary/70" :style="{ width: `${r.pct}%` }" />
+              <div
+                class="anim-grow-x h-2 rounded-full bg-primary/70 transition-[width] duration-500"
+                :style="{ width: `${r.pct}%` }"
+              />
             </div>
           </div>
           <p v-if="!block.rows.length" class="text-sm text-ink-muted">No data.</p>
@@ -249,7 +265,10 @@ function exportProducts() {
             ><span class="font-semibold">{{ settings.money(r.value) }}</span>
           </div>
           <div class="h-2 rounded-full bg-surface-2">
-            <div class="h-2 rounded-full bg-accent/70" :style="{ width: `${r.pct}%` }" />
+            <div
+              class="anim-grow-x h-2 rounded-full bg-accent/70 transition-[width] duration-500"
+              :style="{ width: `${r.pct}%` }"
+            />
           </div>
         </div>
         <p v-if="!block.rows.length" class="text-sm text-ink-muted">No data.</p>

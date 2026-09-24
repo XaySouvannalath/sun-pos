@@ -5,7 +5,7 @@ import { useOrdersStore } from '@/stores/orders'
 import { useSettingsStore } from '@/stores/settings'
 import type { Product } from '@/types'
 
-defineEmits<{ add: [p: Product] }>()
+defineEmits<{ add: [p: Product, el: HTMLElement] }>()
 
 const orders = useOrdersStore()
 const settings = useSettingsStore()
@@ -31,12 +31,12 @@ const medal = [
       <div
         v-for="(t, i) in top"
         :key="t.product.id"
-        class="card flex w-64 shrink-0 snap-start items-center gap-3 p-2.5 pr-2"
+        class="card lift flex w-64 shrink-0 snap-start items-center gap-3 p-2.5 pr-2"
       >
         <button
           class="flex min-w-0 flex-1 items-center gap-3 text-left disabled:opacity-50"
           :disabled="t.product.stock !== null && t.product.stock <= 0"
-          @click="$emit('add', t.product)"
+          @click="$emit('add', t.product, $event.currentTarget as HTMLElement)"
         >
           <span
             class="relative grid size-12 shrink-0 place-items-center rounded-xl bg-surface-2 text-2xl"
@@ -61,7 +61,7 @@ const medal = [
           class="btn btn-primary btn-sm btn-icon shrink-0 rounded-full"
           :aria-label="`Add ${t.product.name}`"
           :disabled="t.product.stock !== null && t.product.stock <= 0"
-          @click="$emit('add', t.product)"
+          @click="$emit('add', t.product, $event.currentTarget as HTMLElement)"
         >
           <Plus class="size-4" />
         </button>

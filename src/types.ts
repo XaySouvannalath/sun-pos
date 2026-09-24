@@ -52,6 +52,8 @@ export interface SelectedOption {
 }
 
 export interface OrderLine {
+  /** Client-side row id for the cart (optional; the server ignores it). */
+  id?: string
   key: string
   productId: string
   name: string
@@ -174,6 +176,9 @@ export interface Shift {
 
 /** Per-device display preference (not part of the store settings). */
 export type ThemeMode = 'light' | 'dark' | 'system'
+
+/** Per-device animation preference. "system" follows the device's reduce-motion setting. */
+export type MotionMode = 'on' | 'off' | 'system'
 
 export interface Settings {
   storeName: string

@@ -42,7 +42,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
           role="dialog"
           aria-modal="true"
           :aria-label="title"
-          class="flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-3xl border border-line bg-surface shadow-xl sm:rounded-3xl"
+          class="anim-modal flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-3xl border border-line bg-surface shadow-xl sm:rounded-3xl"
           :class="widths[size]"
         >
           <header

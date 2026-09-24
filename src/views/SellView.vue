@@ -14,6 +14,7 @@ import { useShiftStore } from '@/stores/shift'
 import { useSettingsStore } from '@/stores/settings'
 import { useToastStore } from '@/stores/toast'
 import { tintClasses } from '@/utils/tints'
+import { flyToCart } from '@/utils/motion'
 import type { Order, Product, SelectedOption } from '@/types'
 
 const catalog = useCatalogStore()
@@ -58,13 +59,18 @@ function stockAllows(p: Product, adding = 1) {
   return (inCart.value.get(p.id) ?? 0) + adding <= p.stock
 }
 
-function quickAdd(p: Product) {
+function quickAdd(p: Product, from?: HTMLElement) {
   if (!stockAllows(p)) return toast.show(`Only ${p.stock} ${p.name} in stock`, 'error')
   cart.add(p)
+  flyToCart(from, p.emoji)
   toast.show(`Added ${p.name}`)
 }
 
+// Where the options dialog was opened from, so the item can fly from there to the cart.
+let pickerFrom: HTMLElement | undefined
+
 function customize(p: Product) {
+  pickerFrom = (document.activeElement as HTMLElement | null) ?? undefined
   pickerProduct.value = p
   pickerOpen.value = true
 }
@@ -74,6 +80,7 @@ function addWithOptions(options: SelectedOption[], qty: number) {
   if (!p) return
   if (!stockAllows(p, qty)) return toast.show(`Only ${p.stock} ${p.name} in stock`, 'error')
   cart.add(p, options, qty)
+  flyToCart(pickerFrom, p.emoji)
   toast.show(`Added ${qty} × ${p.name}`)
 }
 
@@ -160,7 +167,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
       </div>
 
       <div class="flex-1 space-y-4 overflow-y-auto px-4 py-4 md:px-6">
-        <TopSellers v-if="!query" @add="quickAdd" />
+        <TopSellers v-if="!query" @add="(p, el) => quickAdd(p, el)" />
 
         <!-- Categories -->
         <div
@@ -188,16 +195,20 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
         </div>
 
         <!-- Grid -->
+        <!-- Keyed by category so the cards fade in again when the category changes -->
         <div
           v-if="visible.length"
+          :key="category"
           class="grid grid-cols-2 gap-3 pb-20 sm:grid-cols-3 lg:pb-4 xl:grid-cols-4 2xl:grid-cols-5"
         >
           <ProductCard
-            v-for="p in visible"
+            v-for="(p, i) in visible"
             :key="p.id"
+            class="anim-fade-up"
+            :style="{ '--i': Math.min(i, 12) }"
             :product="p"
             :in-cart="inCart.get(p.id)"
-            @add="quickAdd(p)"
+            @add="(el) => quickAdd(p, el)"
             @customize="customize(p)"
           />
         </div>
@@ -213,6 +224,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
     <!-- Cart: drawer on smaller screens -->
     <button
       class="btn btn-primary btn-lg fixed right-4 bottom-20 z-30 shadow-lg md:bottom-4 lg:hidden"
+      data-cart-target
       @click="cartDrawer = true"
     >
       <ShoppingCart class="size-5" />

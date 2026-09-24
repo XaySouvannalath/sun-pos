@@ -22,7 +22,9 @@ large touch targets, and a comfortable dark theme.
 - **Reports**: sales, orders, average order, estimated profit, sales by hour or day, best sellers, payment
   methods, categories, order types and staff.
 - **Staff & roles**: PIN login. Managers get everything; cashiers can sell, run shifts and manage customers.
-- **Settings**: store info, currency (USD, LAK, THB, EUR, VND), tax, service charge, theme, and JSON backup/restore.
+- **Settings**: store info, currency (USD, LAK, THB, EUR, VND), tax, service charge, and JSON backup/restore.
+- **Display per device**: light/dark theme, and animations On, Off or Match device (follows the device's
+  reduce-motion setting). Animations are short: items fly into the cart, totals count up, charts grow in.
 - **Import from Excel or CSV**: products, customers, staff and stock counts. Columns are matched automatically, and
   every row is checked in a preview before anything is saved. Excel and CSV templates are included.
 

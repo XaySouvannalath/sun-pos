@@ -4,7 +4,7 @@ import { api } from '@/api'
 import { persisted } from '@/composables/persisted'
 import { roundTo } from '@/utils/pos'
 import { embedded } from '@/utils/env'
-import type { Settings, ThemeMode } from '@/types'
+import type { MotionMode, Settings, ThemeMode } from '@/types'
 
 /** Used until the server's settings arrive. */
 const fallback: Settings = {
@@ -26,6 +26,8 @@ export const useSettingsStore = defineStore('settings', () => {
   const s = ref<Settings>({ ...fallback })
   // Theme is a per-device preference, so it stays in this browser.
   const theme = persisted<ThemeMode>('theme', () => (embedded ? 'system' : 'light'))
+  // Animations are per device too: a slow till can turn them off without affecting others.
+  const motion = persisted<MotionMode>('motion', () => 'system')
 
   async function load() {
     s.value = await api.settings.get()
@@ -76,9 +78,25 @@ export const useSettingsStore = defineStore('settings', () => {
       document.documentElement.classList.toggle('dark', isDark.value)
   })
 
+  const prefersReducedMotion =
+    typeof window !== 'undefined' && window.matchMedia
+      ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      : false
+
+  /** Whether to animate. "system" respects the device's reduce-motion setting. */
+  const animate = computed(
+    () => motion.value === 'on' || (motion.value === 'system' && !prefersReducedMotion),
+  )
+
+  // One class on <html> switches every CSS animation and transition off (see main.css).
+  watchEffect(() => {
+    if (typeof document !== 'undefined')
+      document.documentElement.classList.toggle('motion-off', !animate.value)
+  })
+
   function toggleTheme() {
     theme.value = isDark.value ? 'light' : 'dark'
   }
 
-  return { s, theme, load, save, money, round, isDark, toggleTheme }
+  return { s, theme, motion, animate, load, save, money, round, isDark, toggleTheme }
 })

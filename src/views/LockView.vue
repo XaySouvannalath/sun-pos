@@ -76,7 +76,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
             error
               ? 'border-danger bg-danger'
               : pin.length >= i
-                ? 'border-primary bg-primary'
+                ? 'anim-pop border-primary bg-primary'
                 : 'border-line'
           "
         />

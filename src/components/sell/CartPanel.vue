@@ -21,6 +21,7 @@ import DiscountModal from './DiscountModal.vue'
 import CustomerPicker from './CustomerPicker.vue'
 import HeldOrders from './HeldOrders.vue'
 import BaseModal from '@/components/ui/BaseModal.vue'
+import AnimatedNumber from '@/components/ui/AnimatedNumber.vue'
 import { useCartStore } from '@/stores/cart'
 import { useCustomersStore } from '@/stores/customers'
 import { useSettingsStore } from '@/stores/settings'
@@ -74,7 +75,7 @@ function clear() {
 </script>
 
 <template>
-  <aside class="flex h-full flex-col bg-surface">
+  <aside class="flex h-full flex-col bg-surface" data-cart-target>
     <!-- Header -->
     <div class="space-y-3 border-b border-line p-4">
       <div class="flex items-center gap-2">
@@ -151,8 +152,12 @@ function clear() {
         <p class="font-medium">No items yet</p>
         <p class="text-sm">Tap a product or a top seller to add it.</p>
       </div>
-      <ul v-else class="divide-y divide-line/70">
-        <li v-for="(l, i) in cart.state.lines" :key="l.key + i" class="flex gap-3 px-4 py-3">
+      <TransitionGroup v-else tag="ul" name="list" class="relative divide-y divide-line/70">
+        <li
+          v-for="(l, i) in cart.state.lines"
+          :key="l.id ?? l.key + i"
+          class="flex gap-3 bg-surface px-4 py-3"
+        >
           <button class="flex min-w-0 flex-1 gap-3 text-left" @click="edit(i)">
             <span
               class="grid size-10 shrink-0 place-items-center rounded-xl bg-surface-2 text-xl"
@@ -182,7 +187,10 @@ function clear() {
               >
                 <Minus class="size-3.5" />
               </button>
-              <span class="w-6 text-center text-sm font-semibold">{{ l.qty }}</span>
+              <!-- Keyed by quantity so the number pops each time it changes -->
+              <span :key="l.qty" class="anim-pop w-6 text-center text-sm font-semibold">{{
+                l.qty
+              }}</span>
               <button
                 class="grid size-8 place-items-center rounded-full hover:bg-surface"
                 :aria-label="`Add one ${l.name}`"
@@ -193,7 +201,7 @@ function clear() {
             </div>
           </div>
         </li>
-      </ul>
+      </TransitionGroup>
     </div>
 
     <!-- Totals -->
@@ -239,12 +247,12 @@ function clear() {
         </div>
         <div class="flex items-baseline justify-between pt-1 text-xl font-bold">
           <dt>Total</dt>
-          <dd>{{ settings.money(cart.totals.total) }}</dd>
+          <dd><AnimatedNumber :value="cart.totals.total" :format="settings.money" /></dd>
         </div>
       </dl>
 
       <button class="btn btn-primary btn-lg w-full" :disabled="cart.isEmpty" @click="emit('pay')">
-        Charge {{ settings.money(cart.totals.total) }}
+        Charge <AnimatedNumber :value="cart.totals.total" :format="settings.money" />
         <kbd class="hidden rounded bg-black/10 px-1.5 text-xs font-medium lg:inline">F9</kbd>
       </button>
     </div>

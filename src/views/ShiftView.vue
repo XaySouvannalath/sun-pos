@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { ArrowDownToLine, ArrowUpFromLine, Lock, Wallet } from 'lucide-vue-next'
 import BaseModal from '@/components/ui/BaseModal.vue'
+import AnimatedNumber from '@/components/ui/AnimatedNumber.vue'
 import { useShiftStore } from '@/stores/shift'
 import { useSettingsStore } from '@/stores/settings'
 import { useToastStore } from '@/stores/toast'
@@ -122,7 +123,9 @@ async function closeShift() {
       <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div class="card p-4">
           <p class="text-xs text-ink-muted">Sales</p>
-          <p class="text-2xl font-bold">{{ settings.money(summary.gross) }}</p>
+          <p class="text-2xl font-bold">
+            <AnimatedNumber :value="summary.gross" :format="settings.money" />
+          </p>
           <p class="text-xs text-ink-muted">{{ summary.orders }} orders</p>
         </div>
         <div class="card p-4">
@@ -141,7 +144,9 @@ async function closeShift() {
         </div>
         <div class="card border-primary/40 bg-primary-soft p-4">
           <p class="text-xs text-ink-muted">Expected cash in drawer</p>
-          <p class="text-2xl font-bold text-primary">{{ settings.money(summary.expectedCash) }}</p>
+          <p class="text-2xl font-bold text-primary">
+            <AnimatedNumber :value="summary.expectedCash" :format="settings.money" />
+          </p>
         </div>
       </div>
 
