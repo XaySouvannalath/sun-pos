@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '@/i18n'
 import { ref, watch } from 'vue'
 import { Plus, Trash2, X } from 'lucide-vue-next'
 import BaseModal from '@/components/ui/BaseModal.vue'
@@ -54,10 +55,10 @@ watch(open, (o) => {
 function addGroup() {
   form.value.options.push({
     id: uid(),
-    name: 'Size',
+    name: t('productEditor.defaultGroup'),
     multiple: false,
     required: true,
-    choices: [{ name: 'Regular', price: 0 }],
+    choices: [{ name: t('productEditor.defaultChoice'), price: 0 }],
   })
 }
 
@@ -100,11 +101,15 @@ async function remove() {
 </script>
 
 <template>
-  <BaseModal v-model="open" :title="isNew ? 'New product' : 'Edit product'" size="lg">
+  <BaseModal
+    v-model="open"
+    :title="isNew ? t('productEditor.new') : t('productEditor.edit')"
+    size="lg"
+  >
     <form id="product-form" class="space-y-5" @submit.prevent="save">
       <div class="grid gap-4 sm:grid-cols-[auto_1fr]">
         <div>
-          <span class="label">Icon</span>
+          <span class="label">{{ t('fields.icon') }}</span>
           <details class="relative">
             <summary
               class="grid size-20 cursor-pointer list-none place-items-center rounded-2xl border border-line bg-surface-2 text-4xl"
@@ -128,11 +133,11 @@ async function remove() {
         </div>
         <div class="grid gap-3 sm:grid-cols-2">
           <div class="sm:col-span-2">
-            <label class="label" for="p-name">Name *</label>
+            <label class="label" for="p-name">{{ t('fields.name') }} *</label>
             <input id="p-name" v-model="form.name" class="input" required />
           </div>
           <div>
-            <label class="label" for="p-cat">Category</label>
+            <label class="label" for="p-cat">{{ t('fields.category') }}</label>
             <select id="p-cat" v-model="form.categoryId" class="input">
               <option v-for="c in catalog.categories" :key="c.id" :value="c.id">
                 {{ c.name }}
@@ -141,14 +146,14 @@ async function remove() {
           </div>
           <label class="flex items-end gap-2 pb-3 text-sm">
             <input v-model="form.active" type="checkbox" class="size-4 accent-[var(--c-primary)]" />
-            Show on sell screen
+            {{ t('productEditor.showOnSell') }}
           </label>
         </div>
       </div>
 
       <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div>
-          <label class="label" for="p-price">Price *</label>
+          <label class="label" for="p-price">{{ t('fields.price') }} *</label>
           <input
             id="p-price"
             v-model.number="form.price"
@@ -160,7 +165,7 @@ async function remove() {
           />
         </div>
         <div>
-          <label class="label" for="p-cost">Cost</label>
+          <label class="label" for="p-cost">{{ t('fields.cost') }}</label>
           <input
             id="p-cost"
             v-model.number="form.cost"
@@ -171,11 +176,11 @@ async function remove() {
           />
         </div>
         <div>
-          <label class="label" for="p-sku">SKU</label>
+          <label class="label" for="p-sku">{{ t('fields.sku') }}</label>
           <input id="p-sku" v-model="form.sku" class="input" />
         </div>
         <div>
-          <label class="label" for="p-bar">Barcode</label>
+          <label class="label" for="p-bar">{{ t('fields.barcode') }}</label>
           <input id="p-bar" v-model="form.barcode" class="input" />
         </div>
       </div>
@@ -183,15 +188,15 @@ async function remove() {
       <div class="rounded-2xl border border-line p-4">
         <label class="flex items-center gap-2 text-sm font-semibold">
           <input v-model="trackStock" type="checkbox" class="size-4 accent-[var(--c-primary)]" />
-          Track stock for this item
+          {{ t('productEditor.trackStock') }}
         </label>
         <div v-if="trackStock" class="mt-3 grid grid-cols-2 gap-3">
           <div>
-            <label class="label" for="p-stock">In stock</label>
+            <label class="label" for="p-stock">{{ t('productEditor.inStock') }}</label>
             <input id="p-stock" v-model.number="form.stock" type="number" class="input" />
           </div>
           <div>
-            <label class="label" for="p-low">Low stock alert at</label>
+            <label class="label" for="p-low">{{ t('productEditor.lowAt') }}</label>
             <input
               id="p-low"
               v-model.number="form.lowStockAt"
@@ -201,18 +206,18 @@ async function remove() {
             />
           </div>
         </div>
-        <p v-else class="mt-1 text-xs text-ink-muted">Good for made-to-order drinks and dishes.</p>
+        <p v-else class="mt-1 text-xs text-ink-muted">{{ t('productEditor.noTrackHint') }}</p>
       </div>
 
       <div>
         <div class="mb-2 flex items-center justify-between">
-          <h3 class="text-sm font-semibold">Options & modifiers</h3>
+          <h3 class="text-sm font-semibold">{{ t('productEditor.options') }}</h3>
           <button type="button" class="btn btn-soft btn-sm" @click="addGroup">
-            <Plus class="size-4" /> Add group
+            <Plus class="size-4" /> {{ t('productEditor.addGroup') }}
           </button>
         </div>
         <p v-if="!form.options.length" class="text-xs text-ink-muted">
-          e.g. Size, Sweetness, Extra toppings.
+          {{ t('productEditor.optionsHint') }}
         </p>
         <div
           v-for="(g, gi) in form.options"
@@ -223,21 +228,21 @@ async function remove() {
             <input
               v-model="g.name"
               class="input h-9 flex-1"
-              placeholder="Group name"
-              aria-label="Group name"
+              :placeholder="t('productEditor.groupName')"
+              :aria-label="t('productEditor.groupName')"
             />
             <label class="flex items-center gap-1.5 text-xs"
               ><input v-model="g.required" type="checkbox" class="accent-[var(--c-primary)]" />
-              Required</label
+              {{ t('common.required') }}</label
             >
             <label class="flex items-center gap-1.5 text-xs"
               ><input v-model="g.multiple" type="checkbox" class="accent-[var(--c-primary)]" />
-              Multiple</label
+              {{ t('productEditor.multiple') }}</label
             >
             <button
               type="button"
               class="btn btn-ghost btn-sm btn-icon"
-              aria-label="Remove group"
+              :aria-label="t('productEditor.removeGroup')"
               @click="form.options.splice(gi, 1)"
             >
               <Trash2 class="size-4" />
@@ -247,21 +252,21 @@ async function remove() {
             <input
               v-model="c.name"
               class="input h-9 flex-1"
-              placeholder="Choice"
-              aria-label="Choice name"
+              :placeholder="t('productEditor.choice')"
+              :aria-label="t('productEditor.choiceName')"
             />
             <input
               v-model.number="c.price"
               type="number"
               step="any"
               class="input h-9 w-28"
-              placeholder="+ price"
-              aria-label="Extra price"
+              :placeholder="t('productEditor.pricePlaceholder')"
+              :aria-label="t('productEditor.extraPrice')"
             />
             <button
               type="button"
               class="btn btn-ghost btn-sm btn-icon"
-              aria-label="Remove choice"
+              :aria-label="t('productEditor.removeChoice')"
               @click="g.choices.splice(ci, 1)"
             >
               <X class="size-4" />
@@ -272,7 +277,7 @@ async function remove() {
             class="text-xs font-semibold text-primary"
             @click="g.choices.push({ name: '', price: 0 })"
           >
-            + Add choice
+            + {{ t('productEditor.addChoice') }}
           </button>
         </div>
       </div>
@@ -280,27 +285,30 @@ async function remove() {
 
     <template #footer>
       <button v-if="!isNew" class="btn btn-danger" @click="confirmDelete = true">
-        <Trash2 class="size-4" /> Delete
+        <Trash2 class="size-4" /> {{ t('common.delete') }}
       </button>
-      <button class="btn btn-soft ml-auto" @click="open = false">Cancel</button>
+      <button class="btn btn-soft ml-auto" @click="open = false">{{ t('common.cancel') }}</button>
       <button
         type="submit"
         form="product-form"
         class="btn btn-primary"
         :disabled="!form.name.trim() || busy"
       >
-        {{ busy ? 'Saving…' : 'Save product' }}
+        {{ busy ? t('common.saving') : t('productEditor.save') }}
       </button>
     </template>
 
-    <BaseModal v-model="confirmDelete" title="Delete product?" size="sm">
+    <BaseModal v-model="confirmDelete" :title="t('productEditor.deleteTitle')" size="sm">
       <p class="text-sm text-ink-muted">
-        “{{ form.name }}” will be removed. Past orders keep their records. To hide it temporarily,
-        untick “Show on sell screen” instead.
+        {{
+          t('productEditor.deleteBody', { name: form.name, show: t('productEditor.showOnSell') })
+        }}
       </p>
       <template #footer>
-        <button class="btn btn-soft flex-1" @click="confirmDelete = false">Cancel</button>
-        <button class="btn btn-danger flex-1" @click="remove">Delete</button>
+        <button class="btn btn-soft flex-1" @click="confirmDelete = false">
+          {{ t('common.cancel') }}
+        </button>
+        <button class="btn btn-danger flex-1" @click="remove">{{ t('common.delete') }}</button>
       </template>
     </BaseModal>
   </BaseModal>

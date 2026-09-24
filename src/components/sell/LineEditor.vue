@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '@/i18n'
 import { computed, ref, watch } from 'vue'
 import { Minus, Plus, Trash2 } from 'lucide-vue-next'
 import BaseModal from '@/components/ui/BaseModal.vue'
@@ -25,7 +26,12 @@ watch(open, (o) => {
   discountPct.value = l.discountPct
 })
 
-const noteQuick = ['Less ice', 'No ice', 'Less sugar', 'Extra hot', 'Take away', 'No onion']
+// Quick notes are written in the staff's language, since they go to the kitchen or bar.
+const noteQuick = computed(() =>
+  (['lessIce', 'noIce', 'lessSugar', 'extraHot', 'takeAway', 'noOnion'] as const).map((k) =>
+    t(`quickNotes.${k}`),
+  ),
+)
 
 function save() {
   const l = cart.state.lines[props.index]
@@ -43,17 +49,17 @@ function remove() {
 </script>
 
 <template>
-  <BaseModal v-model="open" :title="line?.name ?? 'Item'" size="sm">
+  <BaseModal v-model="open" :title="line?.name ?? t('lineEditor.item')" size="sm">
     <div v-if="line" class="space-y-4">
       <p v-if="line.options.length" class="text-sm text-ink-muted">
         {{ line.options.map((o) => o.name).join(', ') }}
       </p>
       <div>
-        <span class="label">Quantity</span>
+        <span class="label">{{ t('lineEditor.quantity') }}</span>
         <div class="flex items-center gap-2">
           <button
             class="btn btn-soft btn-icon"
-            aria-label="Less"
+            :aria-label="t('common.less')"
             @click="qty = Math.max(1, qty - 1)"
           >
             <Minus class="size-4" />
@@ -64,13 +70,13 @@ function remove() {
             min="1"
             class="input text-center text-lg font-bold"
           />
-          <button class="btn btn-soft btn-icon" aria-label="More" @click="qty++">
+          <button class="btn btn-soft btn-icon" :aria-label="t('common.more')" @click="qty++">
             <Plus class="size-4" />
           </button>
         </div>
       </div>
       <div>
-        <span class="label">Item discount (%)</span>
+        <span class="label">{{ t('lineEditor.itemDiscount') }}</span>
         <div class="flex gap-2">
           <button
             v-for="d in [0, 10, 20, 50, 100]"
@@ -79,19 +85,19 @@ function remove() {
             :class="discountPct === d ? 'btn-primary' : 'btn-soft'"
             @click="discountPct = d"
           >
-            {{ d === 100 ? 'Free' : d + '%' }}
+            {{ d === 100 ? t('lineEditor.free') : d + '%' }}
           </button>
         </div>
         <input v-model.number="discountPct" type="number" min="0" max="100" class="input mt-2" />
       </div>
       <div>
-        <label class="label" for="line-note">Note for kitchen / bar</label>
+        <label class="label" for="line-note">{{ t('lineEditor.noteLabel') }}</label>
         <textarea
           id="line-note"
           v-model="note"
           rows="2"
           class="input"
-          placeholder="e.g. less ice"
+          :placeholder="t('lineEditor.notePlaceholder')"
         />
         <div class="mt-2 flex flex-wrap gap-1.5">
           <button
@@ -112,8 +118,10 @@ function remove() {
       </p>
     </div>
     <template #footer>
-      <button class="btn btn-danger" @click="remove"><Trash2 class="size-4" /> Remove</button>
-      <button class="btn btn-primary flex-1" @click="save">Save</button>
+      <button class="btn btn-danger" @click="remove">
+        <Trash2 class="size-4" /> {{ t('common.remove') }}
+      </button>
+      <button class="btn btn-primary flex-1" @click="save">{{ t('common.save') }}</button>
     </template>
   </BaseModal>
 </template>

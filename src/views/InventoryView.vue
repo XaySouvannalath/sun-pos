@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { fmtDateTime as fmt, t } from '@/i18n'
 import { FileSpreadsheet, Search, TriangleAlert, PackagePlus } from 'lucide-vue-next'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import { useCatalogStore } from '@/stores/catalog'
@@ -38,17 +39,23 @@ const adjustOpen = computed({
   },
 })
 
-const reasons = {
-  add: ['Delivery received', 'Returned', 'Correction'],
-  remove: ['Wastage', 'Damaged', 'Staff meal', 'Correction'],
-  set: ['Stock count'],
-}
+// Reasons are saved in the stock log in the language chosen when they were recorded.
+const reasons = computed(() => ({
+  add: [t('stock.reasons.delivery'), t('stock.reasons.returned'), t('stock.reasons.correction')],
+  remove: [
+    t('stock.reasons.wastage'),
+    t('stock.reasons.damaged'),
+    t('stock.reasons.staffMeal'),
+    t('stock.reasons.correction'),
+  ],
+  set: [t('stock.reasons.count')],
+}))
 
 function start(p: Product, m: 'add' | 'remove' | 'set' = 'add') {
   adjusting.value = p
   mode.value = m
   amount.value = m === 'set' ? (p.stock ?? 0) : 0
-  reason.value = reasons[m][0]!
+  reason.value = reasons.value[m][0]!
 }
 
 const delta = computed(() => {
@@ -69,28 +76,20 @@ async function save() {
   toast.show(`${p.name}: ${d > 0 ? '+' : ''}${d}`, 'success')
   adjusting.value = null
 }
-
-const fmt = (t: number) =>
-  new Date(t).toLocaleString([], {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
 </script>
 
 <template>
   <div class="page space-y-4">
     <div class="flex flex-wrap items-center gap-3">
-      <h1 class="page-title flex-1">Stock</h1>
+      <h1 class="page-title flex-1">{{ t('nav.stock') }}</h1>
       <RouterLink :to="{ path: '/import', query: { type: 'stock' } }" class="btn btn-outline">
-        <FileSpreadsheet class="size-4" /> Import stock count
+        <FileSpreadsheet class="size-4" /> {{ t('stock.importCount') }}
       </RouterLink>
     </div>
 
     <div class="grid grid-cols-2 gap-3 lg:grid-cols-3">
       <div class="card p-4">
-        <p class="text-xs text-ink-muted">Tracked items</p>
+        <p class="text-xs text-ink-muted">{{ t('stock.tracked') }}</p>
         <p class="text-2xl font-bold">
           {{ catalog.products.filter((p) => p.stock !== null).length }}
         </p>
@@ -101,14 +100,14 @@ const fmt = (t: number) =>
         @click="onlyLow = !onlyLow"
       >
         <p class="flex items-center gap-1 text-xs text-ink-muted">
-          <TriangleAlert class="size-3.5" /> Low or out of stock
+          <TriangleAlert class="size-3.5" /> {{ t('stock.lowOrOut') }}
         </p>
         <p class="text-2xl font-bold" :class="catalog.lowStock.length > 0 && 'text-accent'">
           {{ catalog.lowStock.length }}
         </p>
       </button>
       <div class="card col-span-2 p-4 lg:col-span-1">
-        <p class="text-xs text-ink-muted">Stock value (at cost)</p>
+        <p class="text-xs text-ink-muted">{{ t('stock.value') }}</p>
         <p class="text-2xl font-bold">{{ settings.money(stockValue) }}</p>
       </div>
     </div>
@@ -119,13 +118,13 @@ const fmt = (t: number) =>
         <input
           v-model="q"
           class="input pl-10"
-          placeholder="Search stock"
-          aria-label="Search stock"
+          :placeholder="t('stock.search')"
+          :aria-label="t('stock.search')"
         />
       </div>
       <label class="flex items-center gap-2 text-sm">
-        <input v-model="onlyLow" type="checkbox" class="size-4 accent-[var(--c-primary)]" /> Low
-        stock only
+        <input v-model="onlyLow" type="checkbox" class="size-4 accent-[var(--c-primary)]" />
+        {{ t('stock.lowOnly') }}
       </label>
     </div>
 
@@ -133,10 +132,10 @@ const fmt = (t: number) =>
       <table class="table">
         <thead>
           <tr>
-            <th>Product</th>
-            <th class="text-right">In stock</th>
-            <th class="hidden text-right sm:table-cell">Alert at</th>
-            <th class="text-right">Actions</th>
+            <th>{{ t('products.product') }}</th>
+            <th class="text-right">{{ t('productEditor.inStock') }}</th>
+            <th class="hidden text-right sm:table-cell">{{ t('stock.alertAt') }}</th>
+            <th class="text-right">{{ t('stock.actions') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -152,25 +151,29 @@ const fmt = (t: number) =>
             </td>
             <td class="text-right">
               <span v-if="p.stock! <= 0" class="badge bg-danger-soft text-danger"
-                >Out · {{ p.stock }}</span
+                >{{ t('stock.out') }} · {{ p.stock }}</span
               >
               <span v-else-if="p.stock! <= p.lowStockAt" class="badge bg-accent-soft text-accent"
-                >Low · {{ p.stock }}</span
+                >{{ t('stock.low') }} · {{ p.stock }}</span
               >
               <span v-else class="font-semibold">{{ p.stock }}</span>
             </td>
             <td class="hidden text-right text-ink-muted sm:table-cell">{{ p.lowStockAt }}</td>
             <td class="text-right whitespace-nowrap">
               <button class="btn btn-soft btn-sm" @click="start(p, 'add')">
-                <PackagePlus class="size-4" /> Receive
+                <PackagePlus class="size-4" /> {{ t('stock.receive') }}
               </button>
-              <button class="btn btn-ghost btn-sm" @click="start(p, 'remove')">Remove</button>
-              <button class="btn btn-ghost btn-sm" @click="start(p, 'set')">Count</button>
+              <button class="btn btn-ghost btn-sm" @click="start(p, 'remove')">
+                {{ t('common.remove') }}
+              </button>
+              <button class="btn btn-ghost btn-sm" @click="start(p, 'set')">
+                {{ t('stock.count') }}
+              </button>
             </td>
           </tr>
           <tr v-if="!tracked.length">
             <td colspan="4" class="py-12 text-center text-ink-muted">
-              Nothing to show. Turn on stock tracking in a product to manage it here.
+              {{ t('stock.empty') }}
             </td>
           </tr>
         </tbody>
@@ -178,22 +181,22 @@ const fmt = (t: number) =>
     </div>
 
     <section>
-      <h2 class="mb-3 text-lg font-semibold">Recent stock movements</h2>
+      <h2 class="mb-3 text-lg font-semibold">{{ t('stock.recent') }}</h2>
       <div class="card overflow-x-auto">
         <table class="table">
           <thead>
             <tr>
-              <th>Time</th>
-              <th>Product</th>
-              <th>Reason</th>
-              <th class="hidden sm:table-cell">By</th>
-              <th class="text-right">Change</th>
+              <th>{{ t('orders.col.time') }}</th>
+              <th>{{ t('products.product') }}</th>
+              <th>{{ t('fields.reason') }}</th>
+              <th class="hidden sm:table-cell">{{ t('stock.by') }}</th>
+              <th class="text-right">{{ t('stock.change') }}</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="m in catalog.stockMoves.slice(0, 40)" :key="m.id">
               <td class="whitespace-nowrap text-ink-muted">{{ fmt(m.at) }}</td>
-              <td>{{ catalog.byId.get(m.productId)?.name ?? 'Deleted product' }}</td>
+              <td>{{ catalog.byId.get(m.productId)?.name ?? t('stock.deletedProduct') }}</td>
               <td class="text-ink-muted">{{ m.reason }}</td>
               <td class="hidden text-ink-muted sm:table-cell">{{ m.by }}</td>
               <td
@@ -205,7 +208,7 @@ const fmt = (t: number) =>
             </tr>
             <tr v-if="!catalog.stockMoves.length">
               <td colspan="5" class="py-8 text-center text-ink-muted">
-                No movements yet. Sales, refunds and adjustments appear here.
+                {{ t('stock.noMovements') }}
               </td>
             </tr>
           </tbody>
@@ -220,15 +223,19 @@ const fmt = (t: number) =>
     >
       <div v-if="adjusting" class="space-y-4">
         <div class="segmented">
-          <button :aria-pressed="mode === 'add'" @click="start(adjusting, 'add')">Receive</button>
-          <button :aria-pressed="mode === 'remove'" @click="start(adjusting, 'remove')">
-            Remove
+          <button :aria-pressed="mode === 'add'" @click="start(adjusting, 'add')">
+            {{ t('stock.receive') }}
           </button>
-          <button :aria-pressed="mode === 'set'" @click="start(adjusting, 'set')">Count</button>
+          <button :aria-pressed="mode === 'remove'" @click="start(adjusting, 'remove')">
+            {{ t('common.remove') }}
+          </button>
+          <button :aria-pressed="mode === 'set'" @click="start(adjusting, 'set')">
+            {{ t('stock.count') }}
+          </button>
         </div>
         <div>
           <label class="label" for="amt">{{
-            mode === 'set' ? 'Counted quantity' : 'Quantity'
+            mode === 'set' ? t('stock.countedQty') : t('lineEditor.quantity')
           }}</label>
           <input
             id="amt"
@@ -240,7 +247,7 @@ const fmt = (t: number) =>
           />
         </div>
         <div>
-          <span class="label">Reason</span>
+          <span class="label">{{ t('fields.reason') }}</span>
           <div class="flex flex-wrap gap-2">
             <button
               v-for="r in reasons[mode]"
@@ -258,8 +265,10 @@ const fmt = (t: number) =>
         </p>
       </div>
       <template #footer>
-        <button class="btn btn-soft" @click="adjusting = null">Cancel</button>
-        <button class="btn btn-primary flex-1" :disabled="delta === 0" @click="save">Save</button>
+        <button class="btn btn-soft" @click="adjusting = null">{{ t('common.cancel') }}</button>
+        <button class="btn btn-primary flex-1" :disabled="delta === 0" @click="save">
+          {{ t('common.save') }}
+        </button>
       </template>
     </BaseModal>
   </div>

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { autoMap, buildRows, importSpecs, parseText } from '@/utils/importer'
+import { autoMap, buildRows, getSpec, parseText } from '@/utils/importer'
 import { createDb, memoryAdapter } from '@/mock/db'
 import { createApi } from '@/mock/router'
 import type { Customer, ImportResult, Product, StaffPublic } from '@/types'
@@ -28,7 +28,7 @@ describe('reading files', () => {
     const t = await parseText(
       'Product Name,Selling Price,Category Name,Qty,Item Code,Notes\nA,1,B,2,C,D',
     )
-    const map = autoMap(t.headers, importSpecs.products)
+    const map = autoMap(t.headers, getSpec('products'))
     expect(map).toMatchObject({ name: 0, price: 1, category: 2, stock: 3, sku: 4, barcode: null })
     expect(buildRows(t, map)[0]).toMatchObject({
       name: 'A',

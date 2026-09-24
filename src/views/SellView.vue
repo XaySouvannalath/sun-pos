@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '@/i18n'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Search, ScanBarcode, ShoppingCart, Wallet, X } from 'lucide-vue-next'
 import ProductCard from '@/components/sell/ProductCard.vue'
@@ -60,10 +61,11 @@ function stockAllows(p: Product, adding = 1) {
 }
 
 function quickAdd(p: Product, from?: HTMLElement) {
-  if (!stockAllows(p)) return toast.show(`Only ${p.stock} ${p.name} in stock`, 'error')
+  if (!stockAllows(p))
+    return toast.show(t('sell.onlyInStock', { n: p.stock ?? 0, name: p.name }), 'error')
   cart.add(p)
   flyToCart(from, p.emoji)
-  toast.show(`Added ${p.name}`)
+  toast.show(t('sell.added', { name: p.name }))
 }
 
 // Where the options dialog was opened from, so the item can fly from there to the cart.
@@ -78,10 +80,11 @@ function customize(p: Product) {
 function addWithOptions(options: SelectedOption[], qty: number) {
   const p = pickerProduct.value
   if (!p) return
-  if (!stockAllows(p, qty)) return toast.show(`Only ${p.stock} ${p.name} in stock`, 'error')
+  if (!stockAllows(p, qty))
+    return toast.show(t('sell.onlyInStock', { n: p.stock ?? 0, name: p.name }), 'error')
   cart.add(p, options, qty)
   flyToCart(pickerFrom, p.emoji)
-  toast.show(`Added ${qty} × ${p.name}`)
+  toast.show(t('sell.addedQty', { qty, name: p.name }))
 }
 
 /** Barcode scanners type the code and press Enter. */
@@ -109,7 +112,7 @@ function startPayment() {
 async function openShiftAndPay() {
   await shift.open(Math.max(0, Number(openingFloat.value) || 0))
   shiftOpen.value = false
-  toast.show('Shift opened', 'success')
+  toast.show(t('shift.opened'), 'success')
   payOpen.value = true
 }
 
@@ -143,14 +146,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
             ref="searchEl"
             v-model="query"
             class="input pr-20 pl-10"
-            placeholder="Search menu, SKU or scan barcode"
-            aria-label="Search products"
+            :placeholder="t('sell.searchPlaceholder')"
+            :aria-label="t('sell.searchLabel')"
             @keydown.enter="onSearchEnter"
           />
           <button
             v-if="query"
             class="absolute top-1.5 right-10 grid size-8 place-items-center text-ink-muted"
-            aria-label="Clear search"
+            :aria-label="t('common.clearSearch')"
             @click="query = ''"
           >
             <X class="size-4" />
@@ -162,7 +165,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
           to="/shift"
           class="btn btn-sm hidden bg-accent-soft text-accent sm:inline-flex"
         >
-          <Wallet class="size-4" /> No open shift
+          <Wallet class="size-4" /> {{ t('sell.noOpenShift') }}
         </RouterLink>
       </div>
 
@@ -179,7 +182,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
             :aria-pressed="category === 'all'"
             @click="category = 'all'"
           >
-            All
+            {{ t('common.all') }}
           </button>
           <button
             v-for="c in catalog.categories"
@@ -212,7 +215,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
             @customize="customize(p)"
           />
         </div>
-        <p v-else class="py-16 text-center text-ink-muted">No products match “{{ query }}”.</p>
+        <p v-else class="py-16 text-center text-ink-muted">{{ t('sell.noMatch', { q: query }) }}</p>
       </div>
     </section>
 
@@ -250,12 +253,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
     <PaymentModal v-model="payOpen" @paid="onPaid" />
     <ReceiptModal v-model="receiptOpen" :order="lastOrder" just-paid />
 
-    <BaseModal v-model="shiftOpen" title="Open a shift first" size="sm">
-      <p class="mb-4 text-sm text-ink-muted">
-        Count the cash in the drawer to start the shift. Sales are tracked against it for the
-        end-of-day cash count.
-      </p>
-      <label class="label" for="float">Opening cash in drawer</label>
+    <BaseModal v-model="shiftOpen" :title="t('sell.openShiftFirst')" size="sm">
+      <p class="mb-4 text-sm text-ink-muted">{{ t('sell.openShiftHelp') }}</p>
+      <label class="label" for="float">{{ t('sell.openingCash') }}</label>
       <input
         id="float"
         v-model.number="openingFloat"
@@ -265,8 +265,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
         @keydown.enter="openShiftAndPay"
       />
       <template #footer>
-        <button class="btn btn-soft" @click="shiftOpen = false">Cancel</button>
-        <button class="btn btn-primary flex-1" @click="openShiftAndPay">Open shift & charge</button>
+        <button class="btn btn-soft" @click="shiftOpen = false">{{ t('common.cancel') }}</button>
+        <button class="btn btn-primary flex-1" @click="openShiftAndPay">
+          {{ t('sell.openShiftAndCharge') }}
+        </button>
       </template>
     </BaseModal>
   </div>

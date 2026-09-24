@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { ApiError, api, hasToken, setToken } from '@/api'
+import { t } from '@/i18n'
 import { useSettingsStore } from './settings'
 import type { Role, StaffInput, StaffPublic } from '@/types'
 
@@ -82,7 +83,7 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  const roleLabel = (r: Role) => (r === 'admin' ? 'Manager' : 'Cashier')
+  const roleLabel = (r: Role) => t(`roles.${r}`)
 
   return {
     user,

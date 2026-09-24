@@ -9,6 +9,10 @@ import { ApiError, setUnauthorizedHandler } from './api'
 import { useAuthStore } from './stores/auth'
 import { useAppStore } from './stores/app'
 import { useToastStore } from './stores/toast'
+import { t } from './i18n'
+import { registerLaoFont } from './i18n/fonts'
+
+registerLaoFont()
 
 const app = createApp(App)
 const pinia = createPinia()
@@ -29,7 +33,7 @@ function report(err: unknown) {
   if (err instanceof ApiError) toast.show(err.message, 'error', 4000)
   else {
     console.error(err)
-    toast.show('Something went wrong. Please try again.', 'error', 4000)
+    toast.show(t('errors.generic'), 'error', 4000)
   }
 }
 app.config.errorHandler = report

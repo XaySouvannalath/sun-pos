@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '@/i18n'
 import { computed } from 'vue'
 import { SlidersHorizontal } from 'lucide-vue-next'
 import { useCatalogStore } from '@/stores/catalog'
@@ -38,10 +39,12 @@ const low = computed(
         <span class="line-clamp-2 text-sm leading-snug font-semibold">{{ product.name }}</span>
         <div class="mt-auto flex items-center justify-between gap-2">
           <span class="text-sm font-bold text-primary">{{ settings.money(product.price) }}</span>
-          <span v-if="soldOut" class="badge bg-danger-soft text-danger">Sold out</span>
-          <span v-else-if="low" class="badge bg-accent-soft text-accent"
-            >{{ product.stock }} left</span
-          >
+          <span v-if="soldOut" class="badge bg-danger-soft text-danger">{{
+            t('sell.soldOut')
+          }}</span>
+          <span v-else-if="low" class="badge bg-accent-soft text-accent">{{
+            t('sell.left', { n: product.stock ?? 0 })
+          }}</span>
         </div>
       </div>
     </button>
@@ -53,7 +56,7 @@ const low = computed(
     <button
       v-if="product.options.length && !soldOut"
       class="absolute top-2 right-2 grid size-8 place-items-center rounded-full bg-surface/90 text-ink-muted shadow-sm hover:text-primary"
-      title="Choose options"
+      :title="t('sell.chooseOptions')"
       @click="$emit('customize')"
     >
       <SlidersHorizontal class="size-4" />

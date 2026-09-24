@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '@/i18n'
 import { reactive, watch } from 'vue'
 import type { Customer } from '@/types'
 
@@ -36,27 +37,34 @@ function submit() {
 <template>
   <form class="space-y-3" @submit.prevent="submit">
     <div>
-      <label class="label" for="c-name">Name *</label>
+      <label class="label" for="c-name">{{ t('fields.name') }} *</label>
       <input id="c-name" v-model="form.name" class="input" required autofocus />
     </div>
     <div class="grid grid-cols-2 gap-3">
       <div>
-        <label class="label" for="c-phone">Phone</label>
+        <label class="label" for="c-phone">{{ t('fields.phone') }}</label>
         <input id="c-phone" v-model="form.phone" class="input" type="tel" />
       </div>
       <div>
-        <label class="label" for="c-email">Email</label>
+        <label class="label" for="c-email">{{ t('fields.email') }}</label>
         <input id="c-email" v-model="form.email" class="input" type="email" />
       </div>
     </div>
     <div>
-      <label class="label" for="c-note">Note</label>
-      <input id="c-note" v-model="form.note" class="input" placeholder="Allergies, preferences…" />
+      <label class="label" for="c-note">{{ t('fields.note') }}</label>
+      <input
+        id="c-note"
+        v-model="form.note"
+        class="input"
+        :placeholder="t('customers.notePlaceholder')"
+      />
     </div>
     <div class="flex gap-2 pt-1">
-      <button type="button" class="btn btn-soft" @click="emit('cancel')">Cancel</button>
+      <button type="button" class="btn btn-soft" @click="emit('cancel')">
+        {{ t('common.cancel') }}
+      </button>
       <button type="submit" class="btn btn-primary flex-1" :disabled="!form.name.trim()">
-        {{ submitLabel ?? 'Save' }}
+        {{ submitLabel ?? t('common.save') }}
       </button>
     </div>
   </form>

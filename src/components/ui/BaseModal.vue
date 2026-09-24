@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '@/i18n'
 import { onBeforeUnmount, watch } from 'vue'
 import { X } from 'lucide-vue-next'
 
@@ -55,7 +56,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
             <button
               v-if="dismissible"
               class="btn btn-ghost btn-sm btn-icon"
-              aria-label="Close"
+              :aria-label="t('common.close')"
               @click="open = false"
             >
               <X class="size-5" />

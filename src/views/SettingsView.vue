@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { languages, t } from '@/i18n'
 import { Plus, Pencil, Trash2, Download, Upload, Crown, FileSpreadsheet } from 'lucide-vue-next'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import { api } from '@/api'
@@ -32,38 +33,46 @@ async function saveSettings() {
   saving.value = true
   try {
     await settings.save(form.value)
-    toast.show('Settings saved', 'success')
+    toast.show(t('settings.saved'), 'success')
   } finally {
     saving.value = false
   }
 }
 
-const themes = [
-  { id: 'light', label: 'Light' },
-  { id: 'dark', label: 'Dark' },
-  { id: 'system', label: 'Match device' },
-] as const
+const themes = computed(
+  () =>
+    [
+      { id: 'light', label: t('settings.theme.light') },
+      { id: 'dark', label: t('settings.theme.dark') },
+      { id: 'system', label: t('settings.matchDevice') },
+    ] as const,
+)
 
-const motions = [
-  { id: 'on', label: 'On' },
-  { id: 'off', label: 'Off' },
-  { id: 'system', label: 'Match device' },
-] as const
+const motions = computed(
+  () =>
+    [
+      { id: 'on', label: t('settings.motion.on') },
+      { id: 'off', label: t('settings.motion.off') },
+      { id: 'system', label: t('settings.matchDevice') },
+    ] as const,
+)
 
 const motionHelp = computed(() =>
   settings.motion === 'system'
-    ? `Follows the device's "reduce motion" setting (currently ${settings.animate ? 'on' : 'off'}).`
+    ? t('settings.motion.helpSystem', {
+        state: settings.animate ? t('settings.motion.on') : t('settings.motion.off'),
+      })
     : settings.motion === 'off'
-      ? 'Screens change instantly. Useful on slower devices or if movement is distracting.'
-      : 'Short animations show where items go and what changed.',
+      ? t('settings.motion.helpOff')
+      : t('settings.motion.helpOn'),
 )
 
 const currencies = [
-  { code: 'USD', locale: 'en-US', decimals: 2, label: 'US Dollar ($)' },
-  { code: 'LAK', locale: 'lo-LA', decimals: 0, label: 'Lao Kip (₭)' },
-  { code: 'THB', locale: 'th-TH', decimals: 2, label: 'Thai Baht (฿)' },
-  { code: 'EUR', locale: 'de-DE', decimals: 2, label: 'Euro (€)' },
-  { code: 'VND', locale: 'vi-VN', decimals: 0, label: 'Vietnamese Dong (₫)' },
+  { code: 'USD', locale: 'en-US', decimals: 2 },
+  { code: 'LAK', locale: 'lo-LA', decimals: 0 },
+  { code: 'THB', locale: 'th-TH', decimals: 2 },
+  { code: 'EUR', locale: 'de-DE', decimals: 2 },
+  { code: 'VND', locale: 'vi-VN', decimals: 0 },
 ]
 
 function setCurrency(code: string) {
@@ -104,8 +113,9 @@ function editStaff(u: StaffPublic | null) {
 }
 
 async function saveStaff() {
-  if (!staffForm.value.name.trim()) return (staffError.value = 'Name is required')
-  if (!staffForm.value.id && !staffForm.value.pin) return (staffError.value = 'Enter a PIN')
+  if (!staffForm.value.name.trim()) return (staffError.value = t('settings.staffErrors.name'))
+  if (!staffForm.value.id && !staffForm.value.pin)
+    return (staffError.value = t('settings.staffErrors.pin'))
   const { pin, ...rest } = staffForm.value
   const err = await auth.saveStaff({
     ...rest,
@@ -115,7 +125,7 @@ async function saveStaff() {
   if (err) staffError.value = err
   else {
     staffOpen.value = false
-    toast.show('Staff saved', 'success')
+    toast.show(t('settings.staffSaved'), 'success')
   }
 }
 
@@ -143,11 +153,11 @@ async function importBackup(e: Event) {
   try {
     json = JSON.parse(await file.text())
   } catch {
-    return toast.show('That file is not valid JSON', 'error')
+    return toast.show(t('settings.invalidJson'), 'error')
   }
   await api.backup.restore(json)
   await app.load()
-  toast.show('Backup restored', 'success')
+  toast.show(t('settings.restored'), 'success')
 }
 
 async function runConfirm() {
@@ -156,80 +166,82 @@ async function runConfirm() {
   await api.admin.reset(scope)
   confirm.value = null
   await Promise.all([app.load(), auth.loadStaff()])
-  toast.show(confirmText[scope].done, 'success')
+  toast.show(confirmText.value[scope].done, 'success')
 }
 
-const confirmText = {
+const confirmText = computed(() => ({
   sales: {
-    title: 'Clear all sales?',
-    body: 'Deletes every order, shift, held order and stock movement. Products, customers and settings are kept.',
-    action: 'Clear sales',
-    done: 'Sales history cleared',
+    title: t('settings.reset.salesTitle'),
+    body: t('settings.reset.salesBody'),
+    action: t('settings.reset.salesAction'),
+    done: t('settings.reset.salesDone'),
   },
   demo: {
-    title: 'Replace sales with demo data?',
-    body: 'Current orders and shifts are replaced with 14 days of sample sales.',
-    action: 'Load demo sales',
-    done: 'Demo sales loaded',
+    title: t('settings.reset.demoTitle'),
+    body: t('settings.reset.demoBody'),
+    action: t('settings.reset.demoAction'),
+    done: t('settings.reset.demoDone'),
   },
   all: {
-    title: 'Reset everything?',
-    body: 'All data is erased and the system starts again with the sample menu, staff and customers.',
-    action: 'Reset everything',
-    done: 'Everything was reset',
+    title: t('settings.reset.allTitle'),
+    body: t('settings.reset.allBody'),
+    action: t('settings.reset.allAction'),
+    done: t('settings.reset.allDone'),
   },
-}
+}))
 </script>
 
 <template>
   <div class="page max-w-4xl space-y-6">
-    <h1 class="page-title">Settings</h1>
+    <h1 class="page-title">{{ t('nav.settings') }}</h1>
 
     <section class="card space-y-4 p-5">
-      <h2 class="font-semibold">Store</h2>
+      <h2 class="font-semibold">{{ t('settings.store') }}</h2>
       <div class="grid gap-3 sm:grid-cols-2">
         <div class="sm:col-span-2">
-          <label class="label" for="s-name">Store name</label
+          <label class="label" for="s-name">{{ t('settings.storeName') }}</label
           ><input id="s-name" v-model="form.storeName" class="input" />
         </div>
         <div>
-          <label class="label" for="s-addr">Address</label
+          <label class="label" for="s-addr">{{ t('settings.address') }}</label
           ><input id="s-addr" v-model="form.address" class="input" />
         </div>
         <div>
-          <label class="label" for="s-phone">Phone</label
+          <label class="label" for="s-phone">{{ t('fields.phone') }}</label
           ><input id="s-phone" v-model="form.phone" class="input" />
         </div>
         <div class="sm:col-span-2">
-          <label class="label" for="s-foot">Receipt footer</label
+          <label class="label" for="s-foot">{{ t('settings.receiptFooter') }}</label
           ><input id="s-foot" v-model="form.receiptFooter" class="input" />
         </div>
       </div>
     </section>
 
     <section class="card space-y-4 p-5">
-      <h2 class="font-semibold">Money, tax & charges</h2>
+      <h2 class="font-semibold">{{ t('settings.money') }}</h2>
       <div class="grid gap-3 sm:grid-cols-3">
         <div class="sm:col-span-3">
-          <label class="label" for="s-cur">Currency</label>
+          <label class="label" for="s-cur">{{ t('settings.currency') }}</label>
           <select
             id="s-cur"
             :value="form.currency"
             class="input"
             @change="setCurrency(($event.target as HTMLSelectElement).value)"
           >
-            <option v-for="c in currencies" :key="c.code" :value="c.code">{{ c.label }}</option>
+            <option v-for="c in currencies" :key="c.code" :value="c.code">
+              {{ t(`currency.${c.code as 'USD' | 'LAK' | 'THB' | 'EUR' | 'VND'}`) }}
+            </option>
           </select>
           <p class="mt-1 text-xs text-ink-muted">
-            Preview: {{ preview }} · Changing currency does not convert existing prices.
+            {{ t('settings.currencyPreview', { preview }) }}
           </p>
         </div>
         <div>
-          <label class="label" for="s-taxl">Tax name</label
+          <label class="label" for="s-taxl">{{ t('settings.taxName') }}</label
           ><input id="s-taxl" v-model="form.taxLabel" class="input" />
         </div>
         <div>
-          <label class="label" for="s-tax">Tax rate (%)</label
+          <label class="label" for="s-tax">{{ t('settings.taxRate') }}</label
           ><input
             id="s-tax"
             v-model.number="form.taxRate"
@@ -240,7 +252,7 @@ const confirmText = {
           />
         </div>
         <div>
-          <label class="label" for="s-svc">Service charge (%)</label
+          <label class="label" for="s-svc">{{ t('settings.serviceRate') }}</label
           ><input
             id="s-svc"
             v-model.number="form.serviceRate"
@@ -255,27 +267,39 @@ const confirmText = {
 
     <section class="card space-y-4 p-5">
       <div>
-        <h2 class="font-semibold">Display on this device</h2>
-        <p class="mt-1 text-sm text-ink-muted">
-          These apply straight away and only to this device, so each till can have its own.
-        </p>
+        <h2 class="font-semibold">{{ t('settings.display') }}</h2>
+        <p class="mt-1 text-sm text-ink-muted">{{ t('settings.displayHelp') }}</p>
+      </div>
+      <div>
+        <span id="lang-label" class="label">{{ t('settings.language') }}</span>
+        <div class="segmented" role="group" aria-labelledby="lang-label">
+          <button
+            v-for="l in languages"
+            :key="l.id"
+            :lang="l.id"
+            :aria-pressed="settings.language === l.id"
+            @click="settings.language = l.id"
+          >
+            {{ l.name }}
+          </button>
+        </div>
       </div>
       <div class="grid gap-4 sm:grid-cols-2">
         <div>
-          <span id="theme-label" class="label">Theme</span>
+          <span id="theme-label" class="label">{{ t('settings.themeLabel') }}</span>
           <div class="segmented" role="group" aria-labelledby="theme-label">
             <button
-              v-for="t in themes"
-              :key="t.id"
-              :aria-pressed="settings.theme === t.id"
-              @click="settings.theme = t.id"
+              v-for="th in themes"
+              :key="th.id"
+              :aria-pressed="settings.theme === th.id"
+              @click="settings.theme = th.id"
             >
-              {{ t.label }}
+              {{ th.label }}
             </button>
           </div>
         </div>
         <div>
-          <span id="motion-label" class="label">Animations</span>
+          <span id="motion-label" class="label">{{ t('settings.animations') }}</span>
           <div class="segmented" role="group" aria-labelledby="motion-label">
             <button
               v-for="m in motions"
@@ -294,10 +318,10 @@ const confirmText = {
     </section>
 
     <section class="card space-y-4 p-5">
-      <h2 class="font-semibold">Sell screen & loyalty</h2>
+      <h2 class="font-semibold">{{ t('settings.sellLoyalty') }}</h2>
       <div class="grid gap-3 sm:grid-cols-2">
         <div>
-          <label class="label" for="s-top">Top sellers period (days)</label>
+          <label class="label" for="s-top">{{ t('settings.topSellerDays') }}</label>
           <input
             id="s-top"
             v-model.number="form.topSellerDays"
@@ -307,7 +331,9 @@ const confirmText = {
           />
         </div>
         <div>
-          <label class="label" for="s-pts">Loyalty points per 1 {{ form.currency }}</label>
+          <label class="label" for="s-pts">{{
+            t('settings.pointsPer', { currency: form.currency })
+          }}</label>
           <input
             id="s-pts"
             v-model.number="form.pointsPerUnit"
@@ -324,18 +350,20 @@ const confirmText = {
       v-if="dirty"
       class="card sticky bottom-20 z-10 flex items-center gap-3 border-primary/40 p-3 shadow-lg md:bottom-4"
     >
-      <p class="flex-1 text-sm">You have unsaved changes to the store settings.</p>
-      <button class="btn btn-ghost btn-sm" @click="form = clone(settings.s)">Discard</button>
+      <p class="flex-1 text-sm">{{ t('settings.unsaved') }}</p>
+      <button class="btn btn-ghost btn-sm" @click="form = clone(settings.s)">
+        {{ t('settings.discard') }}
+      </button>
       <button class="btn btn-primary btn-sm" :disabled="saving" @click="saveSettings">
-        {{ saving ? 'Saving…' : 'Save settings' }}
+        {{ saving ? t('common.saving') : t('settings.save') }}
       </button>
     </div>
 
     <section class="card p-5">
       <div class="mb-3 flex items-center">
-        <h2 class="flex-1 font-semibold">Staff</h2>
+        <h2 class="flex-1 font-semibold">{{ t('settings.staff') }}</h2>
         <button class="btn btn-soft btn-sm" @click="editStaff(null)">
-          <Plus class="size-4" /> Add staff
+          <Plus class="size-4" /> {{ t('settings.addStaff') }}
         </button>
       </div>
       <ul class="divide-y divide-line/70">
@@ -349,12 +377,13 @@ const confirmText = {
               >{{ u.name }} <Crown v-if="u.role === 'admin'" class="size-3.5 text-accent"
             /></span>
             <span class="text-xs text-ink-muted"
-              >{{ auth.roleLabel(u.role) }}{{ u.id === auth.user?.id ? ' · you' : '' }}</span
+              >{{ auth.roleLabel(u.role)
+              }}{{ u.id === auth.user?.id ? ` · ${t('settings.you')}` : '' }}</span
             >
           </span>
           <button
             class="btn btn-ghost btn-sm btn-icon"
-            :aria-label="`Edit ${u.name}`"
+            :aria-label="t('products.editItem', { name: u.name })"
             @click="editStaff(u)"
           >
             <Pencil class="size-4" />
@@ -362,50 +391,51 @@ const confirmText = {
         </li>
       </ul>
       <p class="mt-2 text-xs text-ink-muted">
-        Managers can manage products, stock, reports, settings and refunds. Cashiers can sell,
-        manage shifts and customers.
+        {{ t('settings.rolesHelp') }}
       </p>
     </section>
 
     <section class="card space-y-3 p-5">
-      <h2 class="font-semibold">Data</h2>
-      <p class="text-sm text-ink-muted">
-        Export a backup regularly, or to move the data to another server. Restoring a backup
-        replaces the current data.
-      </p>
+      <h2 class="font-semibold">{{ t('settings.data') }}</h2>
+      <p class="text-sm text-ink-muted">{{ t('settings.dataHelp') }}</p>
       <div class="flex flex-wrap gap-2">
         <RouterLink to="/import" class="btn btn-primary">
-          <FileSpreadsheet class="size-4" /> Import from Excel or CSV
+          <FileSpreadsheet class="size-4" /> {{ t('settings.importExcel') }}
         </RouterLink>
         <button v-if="canDownload" class="btn btn-outline" @click="exportBackup">
-          <Download class="size-4" /> Export backup
+          <Download class="size-4" /> {{ t('settings.exportBackup') }}
         </button>
         <label class="btn btn-outline cursor-pointer"
-          ><Upload class="size-4" /> Import backup<input
-            type="file"
-            accept="application/json"
-            class="hidden"
-            @change="importBackup"
+          ><Upload class="size-4" /> {{ t('settings.importBackup')
+          }}<input type="file" accept="application/json" class="hidden" @change="importBackup"
         /></label>
       </div>
       <div class="flex flex-wrap gap-2 border-t border-line pt-3">
-        <button class="btn btn-soft btn-sm" @click="confirm = 'demo'">Load demo sales</button>
-        <button class="btn btn-danger btn-sm" @click="confirm = 'sales'">
-          Clear sales history
+        <button class="btn btn-soft btn-sm" @click="confirm = 'demo'">
+          {{ t('settings.reset.demoAction') }}
         </button>
-        <button class="btn btn-danger btn-sm" @click="confirm = 'all'">Reset everything</button>
+        <button class="btn btn-danger btn-sm" @click="confirm = 'sales'">
+          {{ t('settings.reset.clearHistory') }}
+        </button>
+        <button class="btn btn-danger btn-sm" @click="confirm = 'all'">
+          {{ t('settings.reset.allAction') }}
+        </button>
       </div>
     </section>
 
-    <BaseModal v-model="staffOpen" :title="staffForm.id ? 'Edit staff' : 'New staff'" size="sm">
+    <BaseModal
+      v-model="staffOpen"
+      :title="staffForm.id ? t('settings.editStaff') : t('settings.newStaff')"
+      size="sm"
+    >
       <div class="space-y-3">
         <div>
-          <label class="label" for="st-name">Name</label
+          <label class="label" for="st-name">{{ t('fields.name') }}</label
           ><input id="st-name" v-model="staffForm.name" class="input" />
         </div>
         <div>
           <label class="label" for="st-pin">{{
-            staffForm.id ? 'New PIN (leave empty to keep)' : 'PIN (4–6 digits)'
+            staffForm.id ? t('settings.newPin') : t('settings.pin')
           }}</label
           ><input
             id="st-pin"
@@ -416,16 +446,16 @@ const confirmText = {
           />
         </div>
         <div>
-          <span class="label">Role</span>
+          <span class="label">{{ t('settings.role') }}</span>
           <div class="segmented">
             <button
               :aria-pressed="staffForm.role === 'cashier'"
               @click="staffForm.role = 'cashier'"
             >
-              Cashier
+              {{ t('roles.cashier') }}
             </button>
             <button :aria-pressed="staffForm.role === 'admin'" @click="staffForm.role = 'admin'">
-              Manager
+              {{ t('roles.admin') }}
             </button>
           </div>
         </div>
@@ -435,8 +465,10 @@ const confirmText = {
         <button v-if="staffForm.id" class="btn btn-danger" @click="removeStaff">
           <Trash2 class="size-4" />
         </button>
-        <button class="btn btn-soft ml-auto" @click="staffOpen = false">Cancel</button>
-        <button class="btn btn-primary" @click="saveStaff">Save</button>
+        <button class="btn btn-soft ml-auto" @click="staffOpen = false">
+          {{ t('common.cancel') }}
+        </button>
+        <button class="btn btn-primary" @click="saveStaff">{{ t('common.save') }}</button>
       </template>
     </BaseModal>
 
@@ -448,7 +480,9 @@ const confirmText = {
     >
       <p v-if="confirm" class="text-sm text-ink-muted">{{ confirmText[confirm].body }}</p>
       <template #footer>
-        <button class="btn btn-soft flex-1" @click="confirm = null">Cancel</button>
+        <button class="btn btn-soft flex-1" @click="confirm = null">
+          {{ t('common.cancel') }}
+        </button>
         <button v-if="confirm" class="btn btn-danger flex-1" @click="runConfirm">
           {{ confirmText[confirm].action }}
         </button>

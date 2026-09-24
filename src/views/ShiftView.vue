@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { fmtDateTime as fmt, t } from '@/i18n'
 import { ArrowDownToLine, ArrowUpFromLine, Lock, Wallet } from 'lucide-vue-next'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import AnimatedNumber from '@/components/ui/AnimatedNumber.vue'
@@ -33,17 +34,9 @@ const difference = computed(() =>
   summary.value ? settings.round((Number(counted.value) || 0) - summary.value.expectedCash) : 0,
 )
 
-const fmt = (t: number) =>
-  new Date(t).toLocaleString([], {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-
 async function openShift() {
   await shift.open(Math.max(0, Number(openingFloat.value) || 0))
-  toast.show('Shift opened', 'success')
+  toast.show(t('shift.opened'), 'success')
 }
 
 function startMove(type: 'in' | 'out') {
@@ -58,7 +51,7 @@ async function saveMove() {
   if (amt <= 0) return
   await shift.moveCash(moveType.value, amt, moveReason.value.trim())
   moveOpen.value = false
-  toast.show(moveType.value === 'in' ? 'Cash added' : 'Cash removed', 'success')
+  toast.show(moveType.value === 'in' ? t('shift.cashAdded') : t('shift.cashRemoved'), 'success')
 }
 
 function startClose() {
@@ -71,23 +64,21 @@ async function closeShift() {
   await shift.close(Math.max(0, Number(counted.value) || 0), closeNote.value.trim())
   await loadHistory()
   closeOpen.value = false
-  toast.show('Shift closed', 'success')
+  toast.show(t('shift.closed'), 'success')
 }
 </script>
 
 <template>
   <div class="page space-y-6">
-    <h1 class="page-title">Shift & cash drawer</h1>
+    <h1 class="page-title">{{ t('shift.title') }}</h1>
 
     <!-- No open shift -->
     <div v-if="!shift.current" class="card mx-auto max-w-md p-6 text-center">
       <Wallet class="mx-auto size-12 text-primary" />
-      <h2 class="mt-3 text-lg font-semibold">No shift is open</h2>
-      <p class="mt-1 text-sm text-ink-muted">
-        Count the cash in the drawer and open a shift to start selling.
-      </p>
+      <h2 class="mt-3 text-lg font-semibold">{{ t('shift.noneOpen') }}</h2>
+      <p class="mt-1 text-sm text-ink-muted">{{ t('shift.noneOpenHelp') }}</p>
       <div class="mt-5 text-left">
-        <label class="label" for="float">Opening cash</label>
+        <label class="label" for="float">{{ t('shift.openingCash') }}</label>
         <input
           id="float"
           v-model.number="openingFloat"
@@ -97,7 +88,9 @@ async function closeShift() {
           @keydown.enter="openShift"
         />
       </div>
-      <button class="btn btn-primary btn-lg mt-4 w-full" @click="openShift">Open shift</button>
+      <button class="btn btn-primary btn-lg mt-4 w-full" @click="openShift">
+        {{ t('shift.open') }}
+      </button>
     </div>
 
     <!-- Current shift -->
@@ -105,36 +98,36 @@ async function closeShift() {
       <div class="flex flex-wrap items-center gap-3">
         <div class="flex-1">
           <p class="text-sm text-ink-muted">
-            Opened {{ fmt(shift.current.openedAt) }} by
+            {{ t('shift.openedAt', { time: fmt(shift.current.openedAt) }) }}
             <b class="text-ink">{{ shift.current.openedBy }}</b>
           </p>
         </div>
         <button class="btn btn-soft" @click="startMove('in')">
-          <ArrowDownToLine class="size-4" /> Cash in
+          <ArrowDownToLine class="size-4" /> {{ t('shift.cashIn') }}
         </button>
         <button class="btn btn-soft" @click="startMove('out')">
-          <ArrowUpFromLine class="size-4" /> Cash out
+          <ArrowUpFromLine class="size-4" /> {{ t('shift.cashOut') }}
         </button>
         <button class="btn btn-primary" @click="startClose">
-          <Lock class="size-4" /> Close shift
+          <Lock class="size-4" /> {{ t('shift.close') }}
         </button>
       </div>
 
       <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div class="card p-4">
-          <p class="text-xs text-ink-muted">Sales</p>
+          <p class="text-xs text-ink-muted">{{ t('shift.sales') }}</p>
           <p class="text-2xl font-bold">
             <AnimatedNumber :value="summary.gross" :format="settings.money" />
           </p>
-          <p class="text-xs text-ink-muted">{{ summary.orders }} orders</p>
+          <p class="text-xs text-ink-muted">{{ t('orders.count', { n: summary.orders }) }}</p>
         </div>
         <div class="card p-4">
-          <p class="text-xs text-ink-muted">Refunds</p>
+          <p class="text-xs text-ink-muted">{{ t('shift.refunds') }}</p>
           <p class="text-2xl font-bold text-danger">{{ settings.money(summary.refunded) }}</p>
-          <p class="text-xs text-ink-muted">{{ summary.refunds }} orders</p>
+          <p class="text-xs text-ink-muted">{{ t('orders.count', { n: summary.refunds }) }}</p>
         </div>
         <div class="card p-4">
-          <p class="text-xs text-ink-muted">Card · QR</p>
+          <p class="text-xs text-ink-muted">{{ t('shift.cardQr') }}</p>
           <p class="text-2xl font-bold">
             {{ settings.money(summary.byMethod.card + summary.byMethod.qr) }}
           </p>
@@ -143,7 +136,7 @@ async function closeShift() {
           </p>
         </div>
         <div class="card border-primary/40 bg-primary-soft p-4">
-          <p class="text-xs text-ink-muted">Expected cash in drawer</p>
+          <p class="text-xs text-ink-muted">{{ t('shift.expectedInDrawer') }}</p>
           <p class="text-2xl font-bold text-primary">
             <AnimatedNumber :value="summary.expectedCash" :format="settings.money" />
           </p>
@@ -152,36 +145,36 @@ async function closeShift() {
 
       <div class="grid gap-4 lg:grid-cols-2">
         <div class="card p-5">
-          <h2 class="mb-3 font-semibold">Cash breakdown</h2>
+          <h2 class="mb-3 font-semibold">{{ t('shift.breakdown') }}</h2>
           <dl class="space-y-2 text-sm">
             <div class="flex justify-between">
-              <dt class="text-ink-muted">Opening cash</dt>
+              <dt class="text-ink-muted">{{ t('shift.openingCash') }}</dt>
               <dd>{{ settings.money(shift.current.openingFloat) }}</dd>
             </div>
             <div class="flex justify-between">
-              <dt class="text-ink-muted">+ Cash sales</dt>
+              <dt class="text-ink-muted">+ {{ t('shift.cashSales') }}</dt>
               <dd>{{ settings.money(summary.cashSales) }}</dd>
             </div>
             <div class="flex justify-between">
-              <dt class="text-ink-muted">− Cash refunds</dt>
+              <dt class="text-ink-muted">− {{ t('shift.cashRefunds') }}</dt>
               <dd>{{ settings.money(summary.cashRefunds) }}</dd>
             </div>
             <div class="flex justify-between">
-              <dt class="text-ink-muted">+ Cash in</dt>
+              <dt class="text-ink-muted">+ {{ t('shift.cashIn') }}</dt>
               <dd>{{ settings.money(summary.cashIn) }}</dd>
             </div>
             <div class="flex justify-between">
-              <dt class="text-ink-muted">− Cash out</dt>
+              <dt class="text-ink-muted">− {{ t('shift.cashOut') }}</dt>
               <dd>{{ settings.money(summary.cashOut) }}</dd>
             </div>
             <div class="flex justify-between border-t border-line pt-2 font-bold">
-              <dt>Expected</dt>
+              <dt>{{ t('shift.expected') }}</dt>
               <dd>{{ settings.money(summary.expectedCash) }}</dd>
             </div>
           </dl>
         </div>
         <div class="card p-5">
-          <h2 class="mb-3 font-semibold">Cash movements</h2>
+          <h2 class="mb-3 font-semibold">{{ t('shift.movements') }}</h2>
           <ul v-if="shift.current.cashMoves.length" class="divide-y divide-line/70 text-sm">
             <li
               v-for="(m, i) in [...shift.current.cashMoves].reverse()"
@@ -191,7 +184,7 @@ async function closeShift() {
               <ArrowDownToLine v-if="m.type === 'in'" class="size-4 text-success" />
               <ArrowUpFromLine v-else class="size-4 text-danger" />
               <span class="flex-1"
-                >{{ m.reason || (m.type === 'in' ? 'Cash in' : 'Cash out') }}
+                >{{ m.reason || (m.type === 'in' ? t('shift.cashIn') : t('shift.cashOut')) }}
                 <span class="text-xs text-ink-muted">· {{ m.by }} · {{ fmt(m.at) }}</span></span
               >
               <span class="font-semibold"
@@ -200,7 +193,7 @@ async function closeShift() {
             </li>
           </ul>
           <p v-else class="py-6 text-center text-sm text-ink-muted">
-            No cash added or removed yet.
+            {{ t('shift.noMovements') }}
           </p>
         </div>
       </div>
@@ -208,17 +201,17 @@ async function closeShift() {
 
     <!-- History -->
     <section v-if="history.length">
-      <h2 class="mb-3 text-lg font-semibold">Past shifts</h2>
+      <h2 class="mb-3 text-lg font-semibold">{{ t('shift.past') }}</h2>
       <div class="card overflow-x-auto">
         <table class="table">
           <thead>
             <tr>
-              <th>Opened</th>
-              <th>Closed</th>
-              <th class="text-right">Sales</th>
-              <th class="text-right">Expected</th>
-              <th class="text-right">Counted</th>
-              <th class="text-right">Difference</th>
+              <th>{{ t('shift.col.opened') }}</th>
+              <th>{{ t('shift.col.closed') }}</th>
+              <th class="text-right">{{ t('shift.sales') }}</th>
+              <th class="text-right">{{ t('shift.expected') }}</th>
+              <th class="text-right">{{ t('shift.col.counted') }}</th>
+              <th class="text-right">{{ t('shift.col.difference') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -252,45 +245,48 @@ async function closeShift() {
       </div>
     </section>
 
-    <BaseModal v-model="moveOpen" :title="moveType === 'in' ? 'Cash in' : 'Cash out'" size="sm">
+    <BaseModal
+      v-model="moveOpen"
+      :title="moveType === 'in' ? t('shift.cashIn') : t('shift.cashOut')"
+      size="sm"
+    >
       <div class="space-y-3">
         <div>
-          <label class="label" for="amt">Amount</label>
+          <label class="label" for="amt">{{ t('payment.amount') }}</label>
           <input id="amt" v-model.number="moveAmount" type="number" min="0" class="input text-lg" />
         </div>
         <div>
-          <label class="label" for="why">Reason</label>
+          <label class="label" for="why">{{ t('fields.reason') }}</label>
           <input
             id="why"
             v-model="moveReason"
             class="input"
-            :placeholder="
-              moveType === 'in' ? 'e.g. Extra change' : 'e.g. Buy ice, supplier payment'
-            "
+            :placeholder="moveType === 'in' ? t('shift.inPlaceholder') : t('shift.outPlaceholder')"
             @keydown.enter="saveMove"
           />
         </div>
       </div>
       <template #footer>
-        <button class="btn btn-soft" @click="moveOpen = false">Cancel</button>
+        <button class="btn btn-soft" @click="moveOpen = false">{{ t('common.cancel') }}</button>
         <button
           class="btn btn-primary flex-1"
           :disabled="!(Number(moveAmount) > 0)"
           @click="saveMove"
         >
-          Save
+          {{ t('common.save') }}
         </button>
       </template>
     </BaseModal>
 
-    <BaseModal v-model="closeOpen" title="Close shift" size="sm">
+    <BaseModal v-model="closeOpen" :title="t('shift.close')" size="sm">
       <div v-if="summary" class="space-y-4">
-        <p class="text-sm text-ink-muted">Count the cash in the drawer and enter the total.</p>
+        <p class="text-sm text-ink-muted">{{ t('shift.countHelp') }}</p>
         <div class="flex justify-between rounded-xl bg-surface-2 p-3 text-sm">
-          <span>Expected</span><b>{{ settings.money(summary.expectedCash) }}</b>
+          <span>{{ t('shift.expected') }}</span
+          ><b>{{ settings.money(summary.expectedCash) }}</b>
         </div>
         <div>
-          <label class="label" for="counted">Counted cash</label>
+          <label class="label" for="counted">{{ t('shift.countedCash') }}</label>
           <input
             id="counted"
             v-model.number="counted"
@@ -305,20 +301,22 @@ async function closeShift() {
         >
           {{
             difference === 0
-              ? 'Drawer balances ✓'
+              ? t('shift.balances')
               : difference < 0
-                ? `Short by ${settings.money(-difference)}`
-                : `Over by ${settings.money(difference)}`
+                ? t('shift.short', { amount: settings.money(-difference) })
+                : t('shift.over', { amount: settings.money(difference) })
           }}
         </p>
         <div>
-          <label class="label" for="cnote">Note</label>
-          <input id="cnote" v-model="closeNote" class="input" placeholder="Optional" />
+          <label class="label" for="cnote">{{ t('fields.note') }}</label>
+          <input id="cnote" v-model="closeNote" class="input" :placeholder="t('common.optional')" />
         </div>
       </div>
       <template #footer>
-        <button class="btn btn-soft" @click="closeOpen = false">Cancel</button>
-        <button class="btn btn-primary flex-1" @click="closeShift">Close shift</button>
+        <button class="btn btn-soft" @click="closeOpen = false">{{ t('common.cancel') }}</button>
+        <button class="btn btn-primary flex-1" @click="closeShift">
+          {{ t('shift.close') }}
+        </button>
       </template>
     </BaseModal>
   </div>

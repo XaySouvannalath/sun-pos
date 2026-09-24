@@ -1,5 +1,6 @@
 import { readStorage, writeStorage } from '@/composables/persisted'
 import { embedded } from '@/utils/env'
+import { t, type MessageKey } from '@/i18n'
 
 /**
  * Where API calls go:
@@ -21,6 +22,37 @@ export class ApiError extends Error {
     this.status = status
     this.code = code
   }
+}
+
+/**
+ * Error codes with a fixed meaning are shown in the user's language. Messages that name
+ * a field or a value (e.g. validation errors) keep the server's wording.
+ */
+const translatedCodes = [
+  'INVALID_PIN',
+  'UNAUTHORIZED',
+  'FORBIDDEN',
+  'NO_OPEN_SHIFT',
+  'SHIFT_ALREADY_OPEN',
+  'ALREADY_REFUNDED',
+  'STOCK_NOT_TRACKED',
+  'CATEGORY_NOT_EMPTY',
+  'PIN_TAKEN',
+  'BARCODE_TAKEN',
+  'LAST_MANAGER',
+  'CANNOT_DELETE_SELF',
+  'INVALID_PIN_FORMAT',
+  'EMPTY_ORDER',
+  'OVERPAID_NON_CASH',
+  'INSUFFICIENT_PAYMENT',
+  'OUT_OF_STOCK',
+  'INVALID_BACKUP',
+] as const
+
+function errorMessage(code: string, serverMessage: string | undefined, status: number): string {
+  if ((translatedCodes as readonly string[]).includes(code))
+    return t(`errors.${code}` as MessageKey)
+  return serverMessage ?? t('errors.requestFailed', { status })
 }
 
 type Query = Record<string, string | number | boolean | null | undefined>
@@ -79,7 +111,7 @@ async function send(
       body: body !== undefined ? JSON.stringify(body) : undefined,
     })
   } catch {
-    throw new ApiError(0, 'NETWORK_ERROR', 'Cannot reach the server. Check the connection.')
+    throw new ApiError(0, 'NETWORK_ERROR', t('errors.NETWORK_ERROR'))
   }
   const text = await res.text()
   let parsed: unknown = null
@@ -87,11 +119,7 @@ async function send(
     try {
       parsed = JSON.parse(text)
     } catch {
-      throw new ApiError(
-        res.status,
-        'INVALID_RESPONSE',
-        `The server sent an unexpected response (${res.status})`,
-      )
+      throw new ApiError(res.status, 'INVALID_RESPONSE', t('errors.INVALID_RESPONSE'))
     }
   }
   return { status: res.status, body: parsed }
@@ -106,9 +134,6 @@ export async function request<T>(
   if (res.status >= 200 && res.status < 300) return res.body as T
   const err = (res.body as { error?: { code?: string; message?: string } } | null)?.error
   if (res.status === 401 && path !== '/auth/login') onUnauthorized?.()
-  throw new ApiError(
-    res.status,
-    err?.code ?? `HTTP_${res.status}`,
-    err?.message ?? `Request failed (${res.status})`,
-  )
+  const code = err?.code ?? `HTTP_${res.status}`
+  throw new ApiError(res.status, code, errorMessage(code, err?.message, res.status))
 }

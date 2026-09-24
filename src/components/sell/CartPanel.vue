@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '@/i18n'
 import { computed, ref } from 'vue'
 import {
   Minus,
@@ -49,10 +50,10 @@ const customer = computed(() =>
   cart.state.customerId ? customers.byId.get(cart.state.customerId) : undefined,
 )
 
-const types: { id: OrderType; label: string; icon: typeof Utensils }[] = [
-  { id: 'dine-in', label: 'Dine in', icon: Utensils },
-  { id: 'takeaway', label: 'Takeaway', icon: ShoppingBag },
-  { id: 'delivery', label: 'Delivery', icon: Bike },
+const types: { id: OrderType; icon: typeof Utensils }[] = [
+  { id: 'dine-in', icon: Utensils },
+  { id: 'takeaway', icon: ShoppingBag },
+  { id: 'delivery', icon: Bike },
 ]
 
 function edit(i: number) {
@@ -62,10 +63,10 @@ function edit(i: number) {
 
 async function hold() {
   const label = cart.state.table
-    ? `Table ${cart.state.table}`
-    : customer.value?.name || `Order ${cart.held.length + 1}`
+    ? t('cart.tableN', { n: cart.state.table })
+    : customer.value?.name || t('cart.orderN', { n: cart.held.length + 1 })
   await cart.hold(label)
-  toast.show(`Held: ${label}`, 'success')
+  toast.show(t('cart.held', { label }), 'success')
 }
 
 function clear() {
@@ -79,16 +80,16 @@ function clear() {
     <!-- Header -->
     <div class="space-y-3 border-b border-line p-4">
       <div class="flex items-center gap-2">
-        <h2 class="flex-1 text-lg font-bold">Current order</h2>
+        <h2 class="flex-1 text-lg font-bold">{{ t('cart.title') }}</h2>
         <button class="btn btn-ghost btn-sm" @click="heldOpen = true">
-          <History class="size-4" /> Held
+          <History class="size-4" /> {{ t('cart.heldButton') }}
           <span v-if="cart.held.length" class="badge bg-accent text-primary-ink">{{
             cart.held.length
           }}</span>
         </button>
         <button
           class="btn btn-ghost btn-sm btn-icon"
-          aria-label="Clear order"
+          :aria-label="t('cart.clearOrder')"
           :disabled="cart.isEmpty"
           @click="confirmClear = true"
         >
@@ -97,7 +98,7 @@ function clear() {
         <button
           v-if="closable"
           class="btn btn-ghost btn-sm btn-icon"
-          aria-label="Close"
+          :aria-label="t('common.close')"
           @click="emit('close')"
         >
           <X class="size-5" />
@@ -106,12 +107,12 @@ function clear() {
 
       <div class="segmented">
         <button
-          v-for="t in types"
-          :key="t.id"
-          :aria-pressed="cart.state.orderType === t.id"
-          @click="cart.state.orderType = t.id"
+          v-for="ty in types"
+          :key="ty.id"
+          :aria-pressed="cart.state.orderType === ty.id"
+          @click="cart.state.orderType = ty.id"
         >
-          <component :is="t.icon" class="size-4" /> {{ t.label }}
+          <component :is="ty.icon" class="size-4" /> {{ t(`orderType.${ty.id}`) }}
         </button>
       </div>
 
@@ -120,8 +121,8 @@ function clear() {
           v-if="cart.state.orderType === 'dine-in'"
           v-model="cart.state.table"
           class="input h-10 w-28"
-          placeholder="Table #"
-          aria-label="Table number"
+          :placeholder="t('cart.tablePlaceholder')"
+          :aria-label="t('cart.tableLabel')"
         />
         <button
           class="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-xl border border-dashed border-line px-3 text-sm text-ink-muted hover:border-primary hover:text-primary"
@@ -134,7 +135,7 @@ function clear() {
             class="grid size-6 shrink-0 place-items-center rounded-full bg-accent-soft text-xs font-bold text-accent"
             >{{ customer.name.charAt(0) }}</span
           >
-          <span class="truncate">{{ customer ? customer.name : 'Add customer' }}</span>
+          <span class="truncate">{{ customer ? customer.name : t('cart.addCustomer') }}</span>
           <span v-if="customer" class="ml-auto flex items-center gap-0.5 text-xs text-accent">
             <Star class="size-3" /> {{ customer.points }}
           </span>
@@ -149,8 +150,8 @@ function clear() {
         class="flex h-full flex-col items-center justify-center gap-2 p-8 text-center text-ink-muted"
       >
         <ShoppingCart class="size-12 opacity-40" />
-        <p class="font-medium">No items yet</p>
-        <p class="text-sm">Tap a product or a top seller to add it.</p>
+        <p class="font-medium">{{ t('cart.empty') }}</p>
+        <p class="text-sm">{{ t('cart.emptyHint') }}</p>
       </div>
       <TransitionGroup v-else tag="ul" name="list" class="relative divide-y divide-line/70">
         <li
@@ -182,7 +183,7 @@ function clear() {
             <div class="flex items-center gap-1 rounded-full bg-surface-2 p-0.5">
               <button
                 class="grid size-8 place-items-center rounded-full hover:bg-surface"
-                :aria-label="`Remove one ${l.name}`"
+                :aria-label="t('cart.removeOne', { name: l.name })"
                 @click="cart.setQty(i, l.qty - 1)"
               >
                 <Minus class="size-3.5" />
@@ -193,7 +194,7 @@ function clear() {
               }}</span>
               <button
                 class="grid size-8 place-items-center rounded-full hover:bg-surface"
-                :aria-label="`Add one ${l.name}`"
+                :aria-label="t('cart.addOne', { name: l.name })"
                 @click="cart.setQty(i, l.qty + 1)"
               >
                 <Plus class="size-3.5" />
@@ -212,25 +213,25 @@ function clear() {
           :disabled="cart.isEmpty"
           @click="discountOpen = true"
         >
-          <Percent class="size-4" /> Discount
+          <Percent class="size-4" /> {{ t('cart.discount') }}
         </button>
         <button class="btn btn-soft btn-sm flex-1" @click="noteOpen = true">
-          <StickyNote class="size-4" /> Note
+          <StickyNote class="size-4" /> {{ t('cart.note') }}
           <span v-if="cart.state.note" class="size-1.5 rounded-full bg-accent" />
         </button>
         <button class="btn btn-soft btn-sm flex-1" :disabled="cart.isEmpty" @click="hold">
-          <CirclePause class="size-4" /> Hold
+          <CirclePause class="size-4" /> {{ t('cart.hold') }}
         </button>
       </div>
 
       <dl class="space-y-1 text-sm">
         <div class="flex justify-between text-ink-muted">
-          <dt>Subtotal · {{ cart.totals.itemCount }} items</dt>
+          <dt>{{ t('cart.subtotalItems', { n: cart.totals.itemCount }) }}</dt>
           <dd>{{ settings.money(cart.totals.subtotal) }}</dd>
         </div>
         <div v-if="cart.totals.discount" class="flex justify-between text-success">
           <dt>
-            Discount
+            {{ t('cart.discount') }}
             <template v-if="cart.state.discount.type === 'percent'"
               >({{ cart.state.discount.value }}%)</template
             >
@@ -238,7 +239,7 @@ function clear() {
           <dd>−{{ settings.money(cart.totals.discount) }}</dd>
         </div>
         <div v-if="settings.s.serviceRate" class="flex justify-between text-ink-muted">
-          <dt>Service ({{ settings.s.serviceRate }}%)</dt>
+          <dt>{{ t('cart.service', { rate: settings.s.serviceRate }) }}</dt>
           <dd>{{ settings.money(cart.totals.service) }}</dd>
         </div>
         <div v-if="settings.s.taxRate" class="flex justify-between text-ink-muted">
@@ -246,13 +247,14 @@ function clear() {
           <dd>{{ settings.money(cart.totals.tax) }}</dd>
         </div>
         <div class="flex items-baseline justify-between pt-1 text-xl font-bold">
-          <dt>Total</dt>
+          <dt>{{ t('common.total') }}</dt>
           <dd><AnimatedNumber :value="cart.totals.total" :format="settings.money" /></dd>
         </div>
       </dl>
 
       <button class="btn btn-primary btn-lg w-full" :disabled="cart.isEmpty" @click="emit('pay')">
-        Charge <AnimatedNumber :value="cart.totals.total" :format="settings.money" />
+        {{ t('cart.charge') }}
+        <AnimatedNumber :value="cart.totals.total" :format="settings.money" />
         <kbd class="hidden rounded bg-black/10 px-1.5 text-xs font-medium lg:inline">F9</kbd>
       </button>
     </div>
@@ -262,24 +264,28 @@ function clear() {
     <CustomerPicker v-model="customerOpen" />
     <HeldOrders v-model="heldOpen" />
 
-    <BaseModal v-model="noteOpen" title="Order note" size="sm">
+    <BaseModal v-model="noteOpen" :title="t('cart.orderNote')" size="sm">
       <textarea
         v-model="cart.state.note"
         rows="4"
         class="input"
-        placeholder="e.g. Deliver to 2nd floor, call on arrival"
-        aria-label="Order note"
+        :placeholder="t('cart.orderNotePlaceholder')"
+        :aria-label="t('cart.orderNote')"
       />
       <template #footer>
-        <button class="btn btn-primary flex-1" @click="noteOpen = false">Done</button>
+        <button class="btn btn-primary flex-1" @click="noteOpen = false">
+          {{ t('common.done') }}
+        </button>
       </template>
     </BaseModal>
 
-    <BaseModal v-model="confirmClear" title="Clear this order?" size="sm">
-      <p class="text-sm text-ink-muted">All items on the current order will be removed.</p>
+    <BaseModal v-model="confirmClear" :title="t('cart.clearTitle')" size="sm">
+      <p class="text-sm text-ink-muted">{{ t('cart.clearBody') }}</p>
       <template #footer>
-        <button class="btn btn-soft flex-1" @click="confirmClear = false">Keep</button>
-        <button class="btn btn-danger flex-1" @click="clear">Clear order</button>
+        <button class="btn btn-soft flex-1" @click="confirmClear = false">
+          {{ t('cart.keep') }}
+        </button>
+        <button class="btn btn-danger flex-1" @click="clear">{{ t('cart.clearOrder') }}</button>
       </template>
     </BaseModal>
   </aside>

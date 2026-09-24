@@ -2,14 +2,15 @@
 // The parsers are loaded only when needed to keep the main bundle small.
 import type { ImportCell, ImportKind } from '@/types'
 import { canDownload } from './env'
+import { t, type MessageKey } from '@/i18n'
 
 export interface ImportField {
   key: string
   label: string
   required?: boolean
-  /** Other column headings that mean the same thing (compared without spaces or punctuation). */
-  aliases: string[]
   help: string
+  /** Headings accepted for this field: key, English and translated label, and aliases. */
+  names: string[]
 }
 
 export interface ImportSpec {
@@ -22,63 +23,49 @@ export interface ImportSpec {
   example: string[][]
 }
 
-export const importSpecs: Record<ImportKind, ImportSpec> = {
+/** Import definitions. Visible text is in the translation files under import.* */
+interface FieldDef {
+  key: string
+  required?: boolean
+  /** English heading, always accepted when matching columns. */
+  en: string
+  /** Other headings that mean the same thing (compared without spaces or punctuation). */
+  aliases: string[]
+}
+
+const defs: Record<ImportKind, { fields: FieldDef[]; example: string[][] }> = {
   products: {
-    kind: 'products',
-    title: 'Products',
-    description: 'Add new menu items or update prices, categories and details in bulk.',
-    matching:
-      'Rows update an existing product with the same SKU, barcode or name. Other rows create new products. Unknown categories are created.',
     fields: [
       {
         key: 'name',
-        label: 'Name',
         required: true,
+        en: 'Name',
         aliases: ['product', 'productname', 'item', 'itemname', 'menu', 'menuitem', 'title'],
-        help: 'Product name',
       },
       {
         key: 'category',
-        label: 'Category',
         required: true,
+        en: 'Category',
         aliases: ['categoryname', 'group', 'type', 'section'],
-        help: 'Category name, e.g. Coffee',
       },
       {
         key: 'price',
-        label: 'Price',
         required: true,
+        en: 'Price',
         aliases: ['sellingprice', 'saleprice', 'unitprice', 'retailprice', 'priceusd'],
-        help: 'Selling price',
       },
-      {
-        key: 'cost',
-        label: 'Cost',
-        aliases: ['costprice', 'unitcost', 'buyprice', 'purchaseprice'],
-        help: 'Cost per item, for profit reports',
-      },
-      {
-        key: 'sku',
-        label: 'SKU',
-        aliases: ['code', 'itemcode', 'productcode', 'ref', 'reference'],
-        help: 'Your product code',
-      },
-      {
-        key: 'barcode',
-        label: 'Barcode',
-        aliases: ['ean', 'upc', 'gtin', 'barcodenumber'],
-        help: 'For scanning',
-      },
-      { key: 'emoji', label: 'Icon', aliases: ['icon', 'emojiicon'], help: 'An emoji, e.g. ☕' },
+      { key: 'cost', en: 'Cost', aliases: ['costprice', 'unitcost', 'buyprice', 'purchaseprice'] },
+      { key: 'sku', en: 'SKU', aliases: ['code', 'itemcode', 'productcode', 'ref', 'reference'] },
+      { key: 'barcode', en: 'Barcode', aliases: ['ean', 'upc', 'gtin', 'barcodenumber'] },
+      { key: 'emoji', en: 'Icon', aliases: ['icon', 'emojiicon'] },
       {
         key: 'stock',
-        label: 'Stock',
+        en: 'Stock',
         aliases: ['quantity', 'qty', 'onhand', 'stockquantity', 'instock', 'stocklevel'],
-        help: 'Leave empty if you do not track stock',
       },
       {
         key: 'lowStockAt',
-        label: 'Low stock alert',
+        en: 'Low stock alert',
         aliases: [
           'lowstock',
           'lowstockat',
@@ -88,13 +75,11 @@ export const importSpecs: Record<ImportKind, ImportSpec> = {
           'alertat',
           'minimum',
         ],
-        help: 'Warn when stock falls to this',
       },
       {
         key: 'active',
-        label: 'Active',
+        en: 'Active',
         aliases: ['visible', 'show', 'status', 'enabled', 'available', 'onsale'],
-        help: 'yes or no (default yes)',
       },
     ],
     example: [
@@ -103,23 +88,16 @@ export const importSpecs: Record<ImportKind, ImportSpec> = {
     ],
   },
   customers: {
-    kind: 'customers',
-    title: 'Customers',
-    description:
-      'Bring in your customer list, for example from a previous system or a loyalty sign-up sheet.',
-    matching:
-      'Rows update an existing customer with the same phone number or email. Other rows create new customers.',
     fields: [
       {
         key: 'name',
-        label: 'Name',
         required: true,
+        en: 'Name',
         aliases: ['customer', 'customername', 'fullname', 'client'],
-        help: 'Customer name',
       },
       {
         key: 'phone',
-        label: 'Phone',
+        en: 'Phone',
         aliases: [
           'mobile',
           'tel',
@@ -129,20 +107,13 @@ export const importSpecs: Record<ImportKind, ImportSpec> = {
           'whatsapp',
           'contact',
         ],
-        help: 'Used to find the customer again',
       },
-      { key: 'email', label: 'Email', aliases: ['emailaddress', 'mail'], help: '' },
-      {
-        key: 'note',
-        label: 'Note',
-        aliases: ['notes', 'remark', 'remarks', 'comment', 'comments'],
-        help: 'Allergies, preferences…',
-      },
+      { key: 'email', en: 'Email', aliases: ['emailaddress', 'mail'] },
+      { key: 'note', en: 'Note', aliases: ['notes', 'remark', 'remarks', 'comment', 'comments'] },
       {
         key: 'points',
-        label: 'Points',
+        en: 'Points',
         aliases: ['loyaltypoints', 'point', 'balance', 'pointsbalance'],
-        help: 'Opening loyalty points balance',
       },
     ],
     example: [
@@ -151,31 +122,15 @@ export const importSpecs: Record<ImportKind, ImportSpec> = {
     ],
   },
   staff: {
-    kind: 'staff',
-    title: 'Staff',
-    description: 'Add staff accounts, or change roles and PINs for several people at once.',
-    matching:
-      'Rows update an existing staff member with the same name. Other rows create new accounts.',
     fields: [
       {
         key: 'name',
-        label: 'Name',
         required: true,
+        en: 'Name',
         aliases: ['staff', 'staffname', 'employee', 'employeename', 'fullname', 'user'],
-        help: 'Name shown on receipts',
       },
-      {
-        key: 'role',
-        label: 'Role',
-        aliases: ['position', 'level', 'type', 'jobtitle'],
-        help: 'Manager or Cashier (default Cashier)',
-      },
-      {
-        key: 'pin',
-        label: 'PIN',
-        aliases: ['pincode', 'passcode', 'code', 'password', 'loginpin'],
-        help: '4–6 digits; required for new staff',
-      },
+      { key: 'role', en: 'Role', aliases: ['position', 'level', 'type', 'jobtitle'] },
+      { key: 'pin', en: 'PIN', aliases: ['pincode', 'passcode', 'code', 'password', 'loginpin'] },
     ],
     example: [
       ['Noy', 'Cashier', '5678'],
@@ -183,39 +138,52 @@ export const importSpecs: Record<ImportKind, ImportSpec> = {
     ],
   },
   stock: {
-    kind: 'stock',
-    title: 'Stock count',
-    description:
-      'After counting the shelves, upload the counts to set all stock levels at once. Each change is logged.',
-    matching:
-      'Rows are matched to products by SKU or barcode. Products that did not track stock start tracking.',
     fields: [
       {
         key: 'code',
-        label: 'SKU or barcode',
         required: true,
+        en: 'SKU or barcode',
         aliases: ['sku', 'barcode', 'productcode', 'itemcode', 'ean', 'code'],
-        help: 'Identifies the product',
       },
       {
         key: 'quantity',
-        label: 'Counted quantity',
         required: true,
+        en: 'Counted quantity',
         aliases: ['qty', 'count', 'counted', 'stock', 'onhand', 'quantity'],
-        help: 'The new stock level',
       },
-      {
-        key: 'reason',
-        label: 'Reason',
-        aliases: ['note', 'notes', 'remark', 'comment'],
-        help: 'Optional, e.g. Monthly count',
-      },
+      { key: 'reason', en: 'Reason', aliases: ['note', 'notes', 'remark', 'comment'] },
     ],
     example: [
       ['SKU-019', '24', 'Monthly count'],
       ['SKU-022', '6', 'Monthly count'],
     ],
   },
+}
+
+export const importKinds = Object.keys(defs) as ImportKind[]
+
+/** The import definition for a type, with text in the current language. */
+export function getSpec(kind: ImportKind): ImportSpec {
+  const def = defs[kind]
+  return {
+    kind,
+    title: t(`import.kinds.${kind}.title`),
+    description: t(`import.kinds.${kind}.description`),
+    matching: t(`import.kinds.${kind}.matching`),
+    example: def.example,
+    fields: def.fields.map((f) => {
+      const base = `import.fields.${kind}.${f.key}` as const
+      const label = t(`${base}.label` as MessageKey)
+      const help = t(`${base}.help` as MessageKey)
+      return {
+        key: f.key,
+        required: f.required,
+        label,
+        help: help === '—' ? '' : help,
+        names: [f.key, f.en, label, ...f.aliases],
+      }
+    }),
+  }
 }
 
 export interface ParsedTable {
@@ -225,7 +193,8 @@ export interface ParsedTable {
   lineNumbers: number[]
 }
 
-const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
+// Lower case without spaces or punctuation; keeps letters and vowel/tone marks in any script.
+const normalize = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{M}\p{N}]/gu, '')
 
 function toCell(v: unknown): ImportCell {
   if (v === null || v === undefined) return null
@@ -258,7 +227,7 @@ export async function parseText(text: string): Promise<ParsedTable> {
   const res = Papa.parse<string[]>(clean, { delimiter, skipEmptyLines: false })
   const fatal = res.errors.find((e) => e.type === 'Quotes')
   if (fatal)
-    throw new Error(`Could not read the CSV (row ${(fatal.row ?? 0) + 1}): ${fatal.message}`)
+    throw new Error(t('import.errors.csv', { row: (fatal.row ?? 0) + 1, message: fatal.message }))
   return toTable(res.data)
 }
 
@@ -269,9 +238,7 @@ export async function parseFile(file: File): Promise<ParsedTable> {
     return toTable((await readSheet(file)) as unknown[][])
   }
   if (name.endsWith('.xls') || name.endsWith('.numbers') || name.endsWith('.ods'))
-    throw new Error(
-      'This file type is not supported. Save it as Excel (.xlsx) or CSV and try again.',
-    )
+    throw new Error(t('import.errors.fileType'))
   return parseText(await file.text())
 }
 
@@ -285,7 +252,7 @@ export function autoMap(headers: string[], spec: ImportSpec): Record<string, num
     for (const f of spec.fields) {
       if (map[f.key] !== undefined && map[f.key] !== null) continue
       const names =
-        pass === 'exact' ? [normalize(f.key), normalize(f.label)] : f.aliases.map(normalize)
+        pass === 'exact' ? f.names.slice(0, 3).map(normalize) : f.names.slice(3).map(normalize)
       const i = heads.findIndex((h, idx) => !used.has(idx) && names.includes(h))
       if (i >= 0) {
         map[f.key] = i

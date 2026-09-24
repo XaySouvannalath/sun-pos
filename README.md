@@ -23,6 +23,9 @@ large touch targets, and a comfortable dark theme.
   methods, categories, order types and staff.
 - **Staff & roles**: PIN login. Managers get everything; cashiers can sell, run shifts and manage customers.
 - **Settings**: store info, currency (USD, LAK, THB, EUR, VND), tax, service charge, and JSON backup/restore.
+- **Languages**: English, Lao (ລາວ), Chinese (中文) and Vietnamese (Tiếng Việt), chosen per device on the lock
+  screen or in Settings. Dates, times and error messages follow the language. A Lao font is bundled, so Lao
+  displays correctly offline.
 - **Display per device**: light/dark theme, and animations On, Off or Match device (follows the device's
   reduce-motion setting). Animations are short: items fly into the cart, totals count up, charts grow in.
 - **Import from Excel or CSV**: products, customers, staff and stock counts. Columns are matched automatically, and
@@ -64,6 +67,19 @@ The frontend calls the REST API described in **[docs/API.md](docs/API.md)** (52 
 `src/mock/router.ts` is the reference implementation of every endpoint, and `src/__tests__/api.spec.ts` holds the
 contract tests your backend should pass.
 
+## Languages
+
+All interface text lives in `src/i18n/locales/`: `en.ts` is the source, and `lo.ts`, `zh.ts` and `vi.ts` must have
+exactly the same keys and `{placeholders}`. The type check and `src/__tests__/i18n.spec.ts` fail if a translation is
+missing or a placeholder doesn't match.
+
+- **Fix a translation:** edit the text in that language's file.
+- **Add a language:** copy `en.ts` to a new file, translate it, and add it to `languages` and `catalogs` in
+  `src/i18n/index.ts`.
+- Use `t('key')` in components (`import { t } from '@/i18n'`). Plurals use `"{n} item | {n} items"`.
+
+Menu items, categories, the receipt footer and other store data are not translated; they show as entered.
+
 ## Project structure
 
 ```
@@ -71,6 +87,7 @@ src/
   assets/main.css      Tailwind setup and colour tokens (light and dark)
   types.ts             Domain types
   utils/pos.ts         Totals, rounding and cash helpers (shared by the app and the mock)
+  i18n/                Translations (en, lo, zh, vi), language setting, bundled Lao font
   api/                 API client: one typed function per endpoint
   stores/              Pinia stores: cart, catalog, orders, customers, shift, auth, settings
   mock/                Mock backend: router, business rules, and seed data in mock/data/*.json

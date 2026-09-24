@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { fmtDay, t } from '@/i18n'
 import { FileSpreadsheet, Search, UserPlus, Star, Trash2, Pencil } from 'lucide-vue-next'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import CustomerForm from '@/components/CustomerForm.vue'
@@ -49,7 +50,7 @@ async function save(d: Parameters<typeof customers.save>[0]) {
   const saved = await customers.save(d)
   if (viewing.value?.id === saved.id) viewing.value = saved
   formOpen.value = false
-  toast.show('Customer saved', 'success')
+  toast.show(t('customers.saved'), 'success')
 }
 
 async function remove() {
@@ -57,23 +58,23 @@ async function remove() {
   await customers.remove(viewing.value.id)
   confirmDelete.value = false
   viewing.value = null
-  toast.show('Customer deleted')
+  toast.show(t('customers.deleted'))
 }
 </script>
 
 <template>
   <div class="page space-y-4">
     <div class="flex flex-wrap items-center gap-3">
-      <h1 class="page-title flex-1">Customers</h1>
+      <h1 class="page-title flex-1">{{ t('nav.customers') }}</h1>
       <RouterLink
         v-if="auth.isAdmin"
         :to="{ path: '/import', query: { type: 'customers' } }"
         class="btn btn-outline"
       >
-        <FileSpreadsheet class="size-4" /> Import
+        <FileSpreadsheet class="size-4" /> {{ t('nav.import') }}
       </RouterLink>
       <button class="btn btn-primary" @click="openForm(null)">
-        <UserPlus class="size-4" /> Add customer
+        <UserPlus class="size-4" /> {{ t('customers.add') }}
       </button>
     </div>
     <div class="relative max-w-md">
@@ -81,8 +82,8 @@ async function remove() {
       <input
         v-model="q"
         class="input pl-10"
-        placeholder="Search name, phone or email"
-        aria-label="Search customers"
+        :placeholder="t('customers.searchPlaceholder')"
+        :aria-label="t('customers.searchLabel')"
       />
     </div>
 
@@ -90,11 +91,11 @@ async function remove() {
       <table class="table">
         <thead>
           <tr>
-            <th>Name</th>
-            <th class="hidden sm:table-cell">Contact</th>
-            <th class="text-right">Visits</th>
-            <th class="text-right">Spent</th>
-            <th class="text-right">Points</th>
+            <th>{{ t('fields.name') }}</th>
+            <th class="hidden sm:table-cell">{{ t('customers.contact') }}</th>
+            <th class="text-right">{{ t('customers.visits') }}</th>
+            <th class="text-right">{{ t('customers.spent') }}</th>
+            <th class="text-right">{{ t('customers.points') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -122,18 +123,18 @@ async function remove() {
           </tr>
           <tr v-if="!list.length">
             <td colspan="5" class="py-12 text-center text-ink-muted">
-              {{
-                q
-                  ? 'No customers match your search.'
-                  : 'No customers yet. Add one here or from the Sell screen.'
-              }}
+              {{ q ? t('customers.noMatch') : t('customers.empty') }}
             </td>
           </tr>
         </tbody>
       </table>
     </div>
 
-    <BaseModal v-model="formOpen" :title="editing ? 'Edit customer' : 'New customer'" size="md">
+    <BaseModal
+      v-model="formOpen"
+      :title="editing ? t('customers.edit') : t('customers.new')"
+      size="md"
+    >
       <CustomerForm :customer="editing" @cancel="formOpen = false" @submit="save" />
     </BaseModal>
 
@@ -141,65 +142,69 @@ async function remove() {
       <div v-if="viewing" class="space-y-5">
         <div class="grid grid-cols-3 gap-3">
           <div class="rounded-xl bg-surface-2 p-3">
-            <p class="text-xs text-ink-muted">Visits</p>
+            <p class="text-xs text-ink-muted">{{ t('customers.visits') }}</p>
             <p class="text-xl font-bold">{{ viewing.visits }}</p>
           </div>
           <div class="rounded-xl bg-surface-2 p-3">
-            <p class="text-xs text-ink-muted">Total spent</p>
+            <p class="text-xs text-ink-muted">{{ t('customers.totalSpent') }}</p>
             <p class="text-xl font-bold">{{ settings.money(viewing.totalSpent) }}</p>
           </div>
           <div class="rounded-xl bg-accent-soft p-3">
             <p class="flex items-center gap-1 text-xs text-accent">
-              <Star class="size-3" /> Points
+              <Star class="size-3" /> {{ t('customers.points') }}
             </p>
             <p class="text-xl font-bold text-accent">{{ viewing.points }}</p>
           </div>
         </div>
         <dl class="grid grid-cols-2 gap-3 text-sm">
           <div>
-            <dt class="label">Phone</dt>
+            <dt class="label">{{ t('fields.phone') }}</dt>
             <dd>{{ viewing.phone || '—' }}</dd>
           </div>
           <div>
-            <dt class="label">Email</dt>
+            <dt class="label">{{ t('fields.email') }}</dt>
             <dd>{{ viewing.email || '—' }}</dd>
           </div>
           <div class="col-span-2">
-            <dt class="label">Note</dt>
+            <dt class="label">{{ t('fields.note') }}</dt>
             <dd>{{ viewing.note || '—' }}</dd>
           </div>
         </dl>
         <div>
-          <h3 class="mb-2 text-sm font-semibold">Recent orders</h3>
+          <h3 class="mb-2 text-sm font-semibold">{{ t('customers.recentOrders') }}</h3>
           <ul v-if="history.length" class="divide-y divide-line/70 text-sm">
             <li v-for="o in history" :key="o.id" class="flex justify-between py-2">
               <span
-                >#{{ o.number }} · {{ new Date(o.createdAt).toLocaleDateString() }}
-                <span class="text-ink-muted">· {{ o.lines.length }} items</span></span
+                >#{{ o.number }} · {{ fmtDay(o.createdAt) }}
+                <span class="text-ink-muted"
+                  >· {{ t('common.items', { n: o.lines.length }) }}</span
+                ></span
               >
               <span :class="o.status === 'refunded' && 'line-through text-ink-muted'">{{
                 settings.money(o.total)
               }}</span>
             </li>
           </ul>
-          <p v-else class="text-sm text-ink-muted">No orders yet.</p>
+          <p v-else class="text-sm text-ink-muted">{{ t('customers.noOrders') }}</p>
         </div>
       </div>
       <template #footer>
         <button v-if="auth.isAdmin" class="btn btn-danger" @click="confirmDelete = true">
-          <Trash2 class="size-4" /> Delete
+          <Trash2 class="size-4" /> {{ t('common.delete') }}
         </button>
         <button class="btn btn-primary flex-1" @click="viewing && openForm(viewing)">
-          <Pencil class="size-4" /> Edit
+          <Pencil class="size-4" /> {{ t('common.edit') }}
         </button>
       </template>
     </BaseModal>
 
-    <BaseModal v-model="confirmDelete" title="Delete customer?" size="sm">
-      <p class="text-sm text-ink-muted">Their past orders stay in the order history.</p>
+    <BaseModal v-model="confirmDelete" :title="t('customers.deleteTitle')" size="sm">
+      <p class="text-sm text-ink-muted">{{ t('customers.deleteBody') }}</p>
       <template #footer>
-        <button class="btn btn-soft flex-1" @click="confirmDelete = false">Cancel</button>
-        <button class="btn btn-danger flex-1" @click="remove">Delete</button>
+        <button class="btn btn-soft flex-1" @click="confirmDelete = false">
+          {{ t('common.cancel') }}
+        </button>
+        <button class="btn btn-danger flex-1" @click="remove">{{ t('common.delete') }}</button>
       </template>
     </BaseModal>
   </div>

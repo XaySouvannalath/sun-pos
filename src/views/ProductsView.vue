@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '@/i18n'
 import { computed, ref } from 'vue'
 import { FileSpreadsheet, Plus, Search, Pencil, Trash2 } from 'lucide-vue-next'
 import BaseModal from '@/components/ui/BaseModal.vue'
@@ -53,7 +54,7 @@ async function saveCat() {
   if (!catForm.value.name.trim()) return
   await catalog.saveCategory({ ...catForm.value, name: catForm.value.name.trim() })
   catOpen.value = false
-  toast.show('Category saved', 'success')
+  toast.show(t('products.categorySaved'), 'success')
 }
 
 async function removeCat() {
@@ -61,7 +62,7 @@ async function removeCat() {
   if (err) catError.value = err
   else {
     catOpen.value = false
-    toast.show('Category deleted')
+    toast.show(t('products.categoryDeleted'))
   }
 }
 
@@ -71,13 +72,13 @@ const countIn = (id: string) => catalog.products.filter((p) => p.categoryId === 
 <template>
   <div class="page space-y-4">
     <div class="flex flex-wrap items-center gap-3">
-      <h1 class="page-title flex-1">Products</h1>
+      <h1 class="page-title flex-1">{{ t('nav.products') }}</h1>
       <div class="segmented">
         <button class="px-4" :aria-pressed="tab === 'products'" @click="tab = 'products'">
-          Products
+          {{ t('nav.products') }}
         </button>
         <button class="px-4" :aria-pressed="tab === 'categories'" @click="tab = 'categories'">
-          Categories
+          {{ t('products.categories') }}
         </button>
       </div>
       <RouterLink
@@ -85,13 +86,13 @@ const countIn = (id: string) => catalog.products.filter((p) => p.categoryId === 
         :to="{ path: '/import', query: { type: 'products' } }"
         class="btn btn-outline"
       >
-        <FileSpreadsheet class="size-4" /> Import
+        <FileSpreadsheet class="size-4" /> {{ t('nav.import') }}
       </RouterLink>
       <button v-if="tab === 'products'" class="btn btn-primary" @click="edit(null)">
-        <Plus class="size-4" /> Add product
+        <Plus class="size-4" /> {{ t('products.add') }}
       </button>
       <button v-else class="btn btn-primary" @click="editCat(null)">
-        <Plus class="size-4" /> Add category
+        <Plus class="size-4" /> {{ t('products.addCategory') }}
       </button>
     </div>
 
@@ -102,12 +103,12 @@ const countIn = (id: string) => catalog.products.filter((p) => p.categoryId === 
           <input
             v-model="q"
             class="input pl-10"
-            placeholder="Search name, SKU, barcode"
-            aria-label="Search products"
+            :placeholder="t('products.searchPlaceholder')"
+            :aria-label="t('sell.searchLabel')"
           />
         </div>
-        <select v-model="cat" class="input w-48" aria-label="Filter by category">
-          <option value="all">All categories</option>
+        <select v-model="cat" class="input w-48" :aria-label="t('products.filterCategory')">
+          <option value="all">{{ t('products.allCategories') }}</option>
           <option v-for="c in catalog.categories" :key="c.id" :value="c.id">{{ c.name }}</option>
         </select>
       </div>
@@ -116,12 +117,12 @@ const countIn = (id: string) => catalog.products.filter((p) => p.categoryId === 
         <table class="table">
           <thead>
             <tr>
-              <th>Product</th>
-              <th class="hidden md:table-cell">Category</th>
-              <th class="hidden lg:table-cell">SKU</th>
-              <th class="text-right">Price</th>
-              <th class="hidden text-right sm:table-cell">Margin</th>
-              <th class="text-right">Stock</th>
+              <th>{{ t('products.product') }}</th>
+              <th class="hidden md:table-cell">{{ t('fields.category') }}</th>
+              <th class="hidden lg:table-cell">{{ t('fields.sku') }}</th>
+              <th class="text-right">{{ t('fields.price') }}</th>
+              <th class="hidden text-right sm:table-cell">{{ t('products.margin') }}</th>
+              <th class="text-right">{{ t('fields.stock') }}</th>
               <th></th>
             </tr>
           </thead>
@@ -144,8 +145,12 @@ const countIn = (id: string) => catalog.products.filter((p) => p.categoryId === 
                   <div>
                     <p class="font-medium">{{ p.name }}</p>
                     <p class="text-xs text-ink-muted">
-                      <span v-if="!p.active">Hidden · </span
-                      >{{ p.options.length ? `${p.options.length} option groups` : 'No options' }}
+                      <span v-if="!p.active">{{ t('products.hidden') }} · </span
+                      >{{
+                        p.options.length
+                          ? t('products.optionGroups', { n: p.options.length })
+                          : t('products.noOptions')
+                      }}
                     </p>
                   </div>
                 </div>
@@ -165,7 +170,7 @@ const countIn = (id: string) => catalog.products.filter((p) => p.categoryId === 
               <td class="text-right">
                 <button
                   class="btn btn-ghost btn-sm btn-icon"
-                  :aria-label="`Edit ${p.name}`"
+                  :aria-label="t('products.editItem', { name: p.name })"
                   @click="edit(p)"
                 >
                   <Pencil class="size-4" />
@@ -173,7 +178,7 @@ const countIn = (id: string) => catalog.products.filter((p) => p.categoryId === 
               </td>
             </tr>
             <tr v-if="!list.length">
-              <td colspan="7" class="py-12 text-center text-ink-muted">No products found.</td>
+              <td colspan="7" class="py-12 text-center text-ink-muted">{{ t('products.none') }}</td>
             </tr>
           </tbody>
         </table>
@@ -190,7 +195,9 @@ const countIn = (id: string) => catalog.products.filter((p) => p.categoryId === 
         <span class="size-10 rounded-xl" :class="tintClasses[c.tint].tile" />
         <span class="flex-1">
           <span class="block font-semibold">{{ c.name }}</span>
-          <span class="block text-xs text-ink-muted">{{ countIn(c.id) }} products</span>
+          <span class="block text-xs text-ink-muted">{{
+            t('products.count', { n: countIn(c.id) })
+          }}</span>
         </span>
         <Pencil class="size-4 text-ink-muted" />
       </button>
@@ -199,30 +206,34 @@ const countIn = (id: string) => catalog.products.filter((p) => p.categoryId === 
     <ProductEditor
       v-model="editorOpen"
       :product="editing"
-      @saved="toast.show('Product saved', 'success')"
-      @deleted="toast.show('Product deleted')"
+      @saved="toast.show(t('products.saved'), 'success')"
+      @deleted="toast.show(t('products.deleted'))"
     />
 
-    <BaseModal v-model="catOpen" :title="catForm.id ? 'Edit category' : 'New category'" size="sm">
+    <BaseModal
+      v-model="catOpen"
+      :title="catForm.id ? t('products.editCategory') : t('products.newCategory')"
+      size="sm"
+    >
       <div class="space-y-4">
         <div>
-          <label class="label" for="cat-name">Name</label>
+          <label class="label" for="cat-name">{{ t('fields.name') }}</label>
           <input id="cat-name" v-model="catForm.name" class="input" @keydown.enter="saveCat" />
         </div>
         <div>
-          <span class="label">Colour</span>
+          <span class="label">{{ t('products.colour') }}</span>
           <div class="flex gap-2">
             <button
-              v-for="t in tintNames"
-              :key="t"
+              v-for="tint in tintNames"
+              :key="tint"
               class="size-10 rounded-xl border-2"
               :class="[
-                tintClasses[t].tile,
-                catForm.tint === t ? 'border-primary' : 'border-transparent',
+                tintClasses[tint].tile,
+                catForm.tint === tint ? 'border-primary' : 'border-transparent',
               ]"
-              :aria-label="t"
-              :aria-pressed="catForm.tint === t"
-              @click="catForm.tint = t"
+              :aria-label="tint"
+              :aria-pressed="catForm.tint === tint"
+              @click="catForm.tint = tint"
             />
           </div>
         </div>
@@ -232,9 +243,11 @@ const countIn = (id: string) => catalog.products.filter((p) => p.categoryId === 
         <button v-if="catForm.id" class="btn btn-danger" @click="removeCat">
           <Trash2 class="size-4" />
         </button>
-        <button class="btn btn-soft ml-auto" @click="catOpen = false">Cancel</button>
+        <button class="btn btn-soft ml-auto" @click="catOpen = false">
+          {{ t('common.cancel') }}
+        </button>
         <button class="btn btn-primary" :disabled="!catForm.name.trim()" @click="saveCat">
-          Save
+          {{ t('common.save') }}
         </button>
       </template>
     </BaseModal>

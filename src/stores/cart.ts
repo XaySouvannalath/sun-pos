@@ -2,6 +2,7 @@ import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { api } from '@/api'
 import { persisted } from '@/composables/persisted'
+import { t } from '@/i18n'
 import { clone, computeTotals, lineKey, uid } from '@/utils/pos'
 import { useSettingsStore } from './settings'
 import { useOrdersStore } from './orders'
@@ -109,7 +110,7 @@ export const useCartStore = defineStore('cart', () => {
     if (isEmpty.value) return
     const { lines, discount, orderType, table, note, customerId } = clone(state.value)
     const h = await api.held.create({
-      label: label || `Order ${held.value.length + 1}`,
+      label: label || t('cart.orderN', { n: held.value.length + 1 }),
       lines,
       discount,
       orderType,
@@ -123,7 +124,8 @@ export const useCartStore = defineStore('cart', () => {
 
   async function resume(id: string) {
     // Park whatever is on screen so nothing is lost when switching orders.
-    if (!isEmpty.value) await hold(state.value.table ? `Table ${state.value.table}` : '')
+    if (!isEmpty.value)
+      await hold(state.value.table ? t('cart.tableN', { n: state.value.table }) : '')
     const h = await api.held.remove(id)
     held.value = held.value.filter((x) => x.id !== id)
     state.value = {

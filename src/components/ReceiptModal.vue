@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '@/i18n'
 import { Printer } from 'lucide-vue-next'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import OrderReceipt from '@/components/OrderReceipt.vue'
@@ -16,7 +17,7 @@ function print() {
 </script>
 
 <template>
-  <BaseModal v-model="open" size="md" :title="justPaid ? undefined : 'Receipt'">
+  <BaseModal v-model="open" size="md" :title="justPaid ? undefined : t('receipt.title')">
     <div v-if="order">
       <div v-if="justPaid" class="mb-5 text-center">
         <!-- Circle, then tick, drawn in sequence -->
@@ -42,9 +43,10 @@ function print() {
             style="--len: 36; animation-delay: 0.25s"
           />
         </svg>
-        <p class="mt-2 text-xl font-bold">Payment complete</p>
+        <p class="mt-2 text-xl font-bold">{{ t('receipt.paymentComplete') }}</p>
         <p v-if="order.change" class="mt-1 text-lg">
-          Change due: <b class="text-success">{{ settings.money(order.change) }}</b>
+          {{ t('receipt.changeDue') }}
+          <b class="text-success">{{ settings.money(order.change) }}</b>
         </p>
       </div>
       <div class="rounded-2xl bg-surface-2 p-4">
@@ -53,10 +55,10 @@ function print() {
     </div>
     <template #footer>
       <button v-if="canPrint" class="btn btn-soft flex-1" @click="print">
-        <Printer class="size-4" /> Print
+        <Printer class="size-4" /> {{ t('receipt.print') }}
       </button>
       <button class="btn btn-primary flex-1" @click="open = false">
-        {{ justPaid ? 'New order' : 'Close' }}
+        {{ justPaid ? t('receipt.newOrder') : t('common.close') }}
       </button>
     </template>
   </BaseModal>

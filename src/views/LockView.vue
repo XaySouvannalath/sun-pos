@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { languages, t } from '@/i18n'
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Delete } from 'lucide-vue-next'
@@ -65,7 +66,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
         ☀
       </div>
       <h1 class="text-2xl font-bold">{{ settings.s.storeName }}</h1>
-      <p class="mt-1 text-sm text-ink-muted">Enter your PIN to start</p>
+      <p class="mt-1 text-sm text-ink-muted">{{ t('lock.enterPin') }}</p>
 
       <div class="my-6 flex justify-center gap-3" :class="error && 'animate-[shake_0.3s]'">
         <span
@@ -81,7 +82,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
           "
         />
       </div>
-      <p class="-mt-3 mb-3 h-5 text-sm text-danger">{{ error ? 'Wrong PIN, try again' : '' }}</p>
+      <p class="-mt-3 mb-3 h-5 text-sm text-danger">{{ error ? t('lock.wrongPin') : '' }}</p>
 
       <div class="grid grid-cols-3 gap-3">
         <button
@@ -89,17 +90,40 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
           :key="k"
           class="btn h-16 rounded-2xl text-xl"
           :class="k === 'clear' || k === 'back' ? 'btn-ghost text-sm' : 'btn-outline'"
-          :aria-label="k === 'back' ? 'Backspace' : k"
+          :aria-label="k === 'back' ? t('common.backspace') : k"
           @click="press(k)"
         >
           <Delete v-if="k === 'back'" class="size-6" />
-          <template v-else-if="k === 'clear'">Clear</template>
+          <template v-else-if="k === 'clear'">{{ t('common.clear') }}</template>
           <template v-else>{{ k }}</template>
         </button>
       </div>
 
-      <p class="mt-8 text-xs text-ink-muted">
-        Demo PINs: Manager <b>1234</b> · Cashier <b>0000</b>
+      <div
+        class="mt-8 flex flex-wrap justify-center gap-1"
+        role="group"
+        :aria-label="t('settings.language')"
+      >
+        <button
+          v-for="l in languages"
+          :key="l.id"
+          :lang="l.id"
+          class="rounded-full px-3 py-1.5 text-xs font-medium transition"
+          :class="
+            settings.language === l.id
+              ? 'bg-primary-soft text-primary'
+              : 'text-ink-muted hover:bg-surface-2 hover:text-ink'
+          "
+          :aria-pressed="settings.language === l.id"
+          @click="settings.language = l.id"
+        >
+          {{ l.name }}
+        </button>
+      </div>
+
+      <p class="mt-4 text-xs text-ink-muted">
+        {{ t('lock.demoPins') }} {{ t('roles.admin') }} <b>1234</b> · {{ t('roles.cashier') }}
+        <b>0000</b>
       </p>
     </div>
   </div>

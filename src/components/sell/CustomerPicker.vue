@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '@/i18n'
 import { computed, ref, watch } from 'vue'
 import { Search, UserPlus, Star } from 'lucide-vue-next'
 import BaseModal from '@/components/ui/BaseModal.vue'
@@ -35,10 +36,10 @@ function pick(id: string | null) {
 </script>
 
 <template>
-  <BaseModal v-model="open" title="Customer" size="md">
+  <BaseModal v-model="open" :title="t('customerPicker.title')" size="md">
     <CustomerForm
       v-if="adding"
-      submit-label="Add & select"
+      :submit-label="t('customerPicker.addSelect')"
       @cancel="adding = false"
       @submit="addAndPick"
     />
@@ -49,12 +50,14 @@ function pick(id: string | null) {
           <input
             v-model="q"
             class="input pl-10"
-            placeholder="Search name or phone"
+            :placeholder="t('customerPicker.search')"
             autofocus
-            aria-label="Search customers"
+            :aria-label="t('customers.searchLabel')"
           />
         </div>
-        <button class="btn btn-soft" @click="adding = true"><UserPlus class="size-4" /> New</button>
+        <button class="btn btn-soft" @click="adding = true">
+          <UserPlus class="size-4" /> {{ t('common.new') }}
+        </button>
       </div>
       <ul class="divide-y divide-line/70">
         <li v-for="c in results" :key="c.id">
@@ -73,20 +76,24 @@ function pick(id: string | null) {
             </span>
             <span class="text-right text-xs text-ink-muted">
               <span class="flex items-center gap-1 font-semibold text-accent"
-                ><Star class="size-3" /> {{ c.points }} pts</span
+                ><Star class="size-3" /> {{ t('customers.pts', { n: c.points }) }}</span
               >
               {{ settings.money(c.totalSpent) }}
             </span>
           </button>
         </li>
         <li v-if="!results.length" class="py-8 text-center text-sm text-ink-muted">
-          No customers found.
-          <button class="font-semibold text-primary" @click="adding = true">Add one</button>
+          {{ t('customerPicker.none') }}
+          <button class="font-semibold text-primary" @click="adding = true">
+            {{ t('customerPicker.addOne') }}
+          </button>
         </li>
       </ul>
     </div>
     <template v-if="!adding && cart.state.customerId" #footer>
-      <button class="btn btn-soft flex-1" @click="pick(null)">Remove customer from order</button>
+      <button class="btn btn-soft flex-1" @click="pick(null)">
+        {{ t('customerPicker.removeFromOrder') }}
+      </button>
     </template>
   </BaseModal>
 </template>

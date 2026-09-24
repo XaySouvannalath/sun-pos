@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { formatDate, t } from '@/i18n'
 import { Download } from 'lucide-vue-next'
 import AnimatedNumber from '@/components/ui/AnimatedNumber.vue'
 import { api } from '@/api'
@@ -7,18 +8,25 @@ import { useSettingsStore } from '@/stores/settings'
 import { startOfDay } from '@/utils/pos'
 import { downloadCsv } from '@/utils/download'
 import { canDownload } from '@/utils/env'
-import type { BreakdownRow, PaymentMethod, ProductSales, ReportSummary, SalesBucket } from '@/types'
+import type {
+  BreakdownRow,
+  OrderType,
+  PaymentMethod,
+  ProductSales,
+  ReportSummary,
+  SalesBucket,
+} from '@/types'
 
 const settings = useSettingsStore()
 
 type Range = 'today' | 'yesterday' | '7' | '30'
 const range = ref<Range>('today')
-const ranges: { id: Range; label: string }[] = [
-  { id: 'today', label: 'Today' },
-  { id: 'yesterday', label: 'Yesterday' },
-  { id: '7', label: '7 days' },
-  { id: '30', label: '30 days' },
-]
+const ranges = computed<{ id: Range; label: string }[]>(() => [
+  { id: 'today', label: t('range.today') },
+  { id: 'yesterday', label: t('range.yesterday') },
+  { id: '7', label: t('range.days', { n: 7 }) },
+  { id: '30', label: t('range.days', { n: 30 }) },
+])
 
 const DAY = 86400000
 const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -91,17 +99,13 @@ const chart = computed(() => {
       ? b.label
       : days > 7
         ? String(new Date(b.start).getDate())
-        : new Date(b.start).toLocaleDateString([], { weekday: 'short' }),
+        : formatDate(b.start, { weekday: 'short' }),
   }))
   const max = Math.max(...list.map((b) => b.value), 1)
   return { hourly, buckets: list, max }
 })
 
-const methodLabel: Record<PaymentMethod, string> = {
-  cash: 'Cash',
-  card: 'Card',
-  qr: 'QR / Transfer',
-}
+const methodLabel = (m: string) => t(`payMethod.${m as PaymentMethod}`)
 
 function exportProducts() {
   downloadCsv(`product-sales-${range.value}.csv`, [
@@ -114,7 +118,7 @@ function exportProducts() {
 <template>
   <div class="page space-y-5">
     <div class="flex flex-wrap items-center gap-3">
-      <h1 class="page-title flex-1">Reports</h1>
+      <h1 class="page-title flex-1">{{ t('nav.reports') }}</h1>
       <div class="segmented">
         <button
           v-for="r in ranges"
@@ -130,43 +134,53 @@ function exportProducts() {
 
     <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
       <div class="card p-4">
-        <p class="text-xs text-ink-muted">Net sales</p>
+        <p class="text-xs text-ink-muted">{{ t('reports.netSales') }}</p>
         <p class="text-2xl font-bold">
           <AnimatedNumber :value="kpi.net" :format="settings.money" from-zero :duration="600" />
         </p>
         <p class="text-xs text-ink-muted">
-          incl. {{ settings.s.taxLabel }} {{ settings.money(kpi.tax) }}
+          {{
+            t('reports.inclTax', { label: settings.s.taxLabel, amount: settings.money(kpi.tax) })
+          }}
         </p>
       </div>
       <div class="card p-4">
-        <p class="text-xs text-ink-muted">Orders</p>
+        <p class="text-xs text-ink-muted">{{ t('nav.orders') }}</p>
         <p class="text-2xl font-bold">
           <AnimatedNumber :value="kpi.orders" from-zero :duration="600" />
         </p>
-        <p class="text-xs text-ink-muted">{{ kpi.items }} items sold</p>
+        <p class="text-xs text-ink-muted">{{ t('reports.itemsSold', { n: kpi.items }) }}</p>
       </div>
       <div class="card p-4">
-        <p class="text-xs text-ink-muted">Average order</p>
+        <p class="text-xs text-ink-muted">{{ t('reports.avgOrder') }}</p>
         <p class="text-2xl font-bold">
           <AnimatedNumber :value="kpi.avg" :format="settings.money" from-zero :duration="600" />
         </p>
-        <p class="text-xs text-ink-muted">discounts {{ settings.money(kpi.discounts) }}</p>
+        <p class="text-xs text-ink-muted">
+          {{ t('reports.discounts', { amount: settings.money(kpi.discounts) }) }}
+        </p>
       </div>
       <div class="card p-4">
-        <p class="text-xs text-ink-muted">Est. gross profit</p>
+        <p class="text-xs text-ink-muted">{{ t('reports.profit') }}</p>
         <p class="text-2xl font-bold text-success">
           <AnimatedNumber :value="kpi.profit" :format="settings.money" from-zero :duration="600" />
         </p>
         <p class="text-xs text-ink-muted">
-          {{ kpi.margin }}% margin · refunds {{ settings.money(kpi.refunds) }} ({{
-            kpi.refundCount
-          }})
+          {{
+            t('reports.marginRefunds', {
+              margin: kpi.margin,
+              amount: settings.money(kpi.refunds),
+              n: kpi.refundCount,
+            })
+          }}
         </p>
       </div>
     </div>
 
     <div class="card p-5">
-      <h2 class="mb-4 font-semibold">Sales by {{ chart.hourly ? 'hour' : 'day' }}</h2>
+      <h2 class="mb-4 font-semibold">
+        {{ chart.hourly ? t('reports.byHour') : t('reports.byDay') }}
+      </h2>
       <div class="flex h-52 items-end gap-1 sm:gap-2">
         <div
           v-for="(b, bi) in chart.buckets"
@@ -183,7 +197,7 @@ function exportProducts() {
               minHeight: b.value ? '4px' : '0',
               '--i': bi,
             }"
-            :title="`${b.label}: ${settings.money(b.value)} · ${b.count} orders`"
+            :title="`${b.label}: ${settings.money(b.value)} · ${t('orders.count', { n: b.count })}`"
           />
           <span class="text-[10px] text-ink-muted">{{ b.label }}</span>
         </div>
@@ -193,7 +207,7 @@ function exportProducts() {
     <div class="grid gap-4 lg:grid-cols-2">
       <div class="card p-5">
         <div class="mb-3 flex items-center">
-          <h2 class="flex-1 font-semibold">Best-selling products</h2>
+          <h2 class="flex-1 font-semibold">{{ t('reports.bestSelling') }}</h2>
           <button v-if="canDownload" class="btn btn-ghost btn-sm" @click="exportProducts">
             <Download class="size-4" /> CSV
           </button>
@@ -207,11 +221,11 @@ function exportProducts() {
             <span class="w-5 text-right font-semibold text-ink-muted">{{ i + 1 }}</span>
             <span class="text-lg">{{ p.emoji }}</span>
             <span class="flex-1 truncate">{{ p.name }}</span>
-            <span class="text-ink-muted">{{ p.qty }} sold</span>
+            <span class="text-ink-muted">{{ t('sell.sold', { n: p.qty }) }}</span>
             <span class="w-24 text-right font-semibold">{{ settings.money(p.revenue) }}</span>
           </li>
           <li v-if="!products.length" class="py-6 text-center text-sm text-ink-muted">
-            No sales in this period.
+            {{ t('reports.noSales') }}
           </li>
         </ol>
       </div>
@@ -220,10 +234,13 @@ function exportProducts() {
         <div
           v-for="block in [
             {
-              title: 'Payment methods',
-              rows: byMethod.map((r) => ({ ...r, label: methodLabel[r.key as PaymentMethod] })),
+              title: t('reports.paymentMethods'),
+              rows: byMethod.map((r) => ({ ...r, label: methodLabel(r.key) })),
             },
-            { title: 'Sales by category', rows: byCategory.map((r) => ({ ...r, label: r.key })) },
+            {
+              title: t('reports.byCategory'),
+              rows: byCategory.map((r) => ({ ...r, label: r.key })),
+            },
           ]"
           :key="block.title"
           class="card p-5"
@@ -244,7 +261,7 @@ function exportProducts() {
               />
             </div>
           </div>
-          <p v-if="!block.rows.length" class="text-sm text-ink-muted">No data.</p>
+          <p v-if="!block.rows.length" class="text-sm text-ink-muted">{{ t('reports.noData') }}</p>
         </div>
       </div>
     </div>
@@ -252,8 +269,11 @@ function exportProducts() {
     <div class="grid gap-4 lg:grid-cols-2">
       <div
         v-for="block in [
-          { title: 'Order types', rows: byType },
-          { title: 'Sales by staff', rows: byStaff },
+          {
+            title: t('reports.orderTypes'),
+            rows: byType.map((r) => ({ ...r, label: t(`orderType.${r.key as OrderType}`) })),
+          },
+          { title: t('reports.byStaff'), rows: byStaff.map((r) => ({ ...r, label: r.key })) },
         ]"
         :key="block.title"
         class="card p-5"
@@ -261,7 +281,7 @@ function exportProducts() {
         <h2 class="mb-3 font-semibold">{{ block.title }}</h2>
         <div v-for="r in block.rows" :key="r.key" class="mb-2.5">
           <div class="mb-1 flex justify-between text-sm">
-            <span class="capitalize">{{ r.key.replace('-', ' ') }}</span
+            <span>{{ r.label }}</span
             ><span class="font-semibold">{{ settings.money(r.value) }}</span>
           </div>
           <div class="h-2 rounded-full bg-surface-2">
@@ -271,7 +291,7 @@ function exportProducts() {
             />
           </div>
         </div>
-        <p v-if="!block.rows.length" class="text-sm text-ink-muted">No data.</p>
+        <p v-if="!block.rows.length" class="text-sm text-ink-muted">{{ t('reports.noData') }}</p>
       </div>
     </div>
   </div>

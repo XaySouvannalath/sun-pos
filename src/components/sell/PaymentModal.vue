@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '@/i18n'
 import { computed, ref, watch } from 'vue'
 import { Banknote, CreditCard, QrCode, X, Delete } from 'lucide-vue-next'
 import BaseModal from '@/components/ui/BaseModal.vue'
@@ -13,12 +14,12 @@ const emit = defineEmits<{ paid: [order: Order] }>()
 const cart = useCartStore()
 const settings = useSettingsStore()
 
-const methods: { id: PaymentMethod; label: string; icon: typeof Banknote }[] = [
-  { id: 'cash', label: 'Cash', icon: Banknote },
-  { id: 'card', label: 'Card', icon: CreditCard },
-  { id: 'qr', label: 'QR / Transfer', icon: QrCode },
+const methods: { id: PaymentMethod; icon: typeof Banknote }[] = [
+  { id: 'cash', icon: Banknote },
+  { id: 'card', icon: CreditCard },
+  { id: 'qr', icon: QrCode },
 ]
-const methodLabel = (m: PaymentMethod) => methods.find((x) => x.id === m)!.label
+const methodLabel = (m: PaymentMethod) => t(`payMethod.${m}`)
 
 const payments = ref<Payment[]>([])
 const method = ref<PaymentMethod>('cash')
@@ -92,14 +93,16 @@ const keys = computed(() => [
 </script>
 
 <template>
-  <BaseModal v-model="open" title="Payment" size="xl">
+  <BaseModal v-model="open" :title="t('payment.title')" size="xl">
     <div class="grid gap-6 md:grid-cols-2">
       <!-- Left: summary -->
       <div class="space-y-4">
         <div class="rounded-2xl bg-primary-soft p-5 text-center">
-          <p class="text-sm text-ink-muted">Total due</p>
+          <p class="text-sm text-ink-muted">{{ t('payment.totalDue') }}</p>
           <p class="text-4xl font-bold tracking-tight">{{ settings.money(total) }}</p>
-          <p class="mt-1 text-xs text-ink-muted">{{ cart.totals.itemCount }} items</p>
+          <p class="mt-1 text-xs text-ink-muted">
+            {{ t('common.items', { n: cart.totals.itemCount }) }}
+          </p>
         </div>
 
         <div class="space-y-2">
@@ -116,7 +119,7 @@ const keys = computed(() => [
             <span class="font-semibold">{{ settings.money(p.amount) }}</span>
             <button
               class="btn btn-ghost btn-sm btn-icon"
-              aria-label="Remove payment"
+              :aria-label="t('payment.removePayment')"
               @click="payments.splice(i, 1)"
             >
               <X class="size-4" />
@@ -126,11 +129,11 @@ const keys = computed(() => [
 
         <dl class="space-y-1.5 rounded-2xl bg-surface-2 p-4">
           <div class="flex justify-between text-sm">
-            <dt class="text-ink-muted">Paid</dt>
+            <dt class="text-ink-muted">{{ t('payment.paid') }}</dt>
             <dd class="font-semibold">{{ settings.money(paid) }}</dd>
           </div>
           <div class="flex justify-between text-lg font-bold">
-            <dt>{{ remaining > 0 ? 'Remaining' : 'Change' }}</dt>
+            <dt>{{ remaining > 0 ? t('payment.remaining') : t('payment.change') }}</dt>
             <dd :class="remaining > 0 ? 'text-danger' : 'text-success'">
               {{ settings.money(remaining > 0 ? remaining : change) }}
             </dd>
@@ -153,7 +156,7 @@ const keys = computed(() => [
             :aria-pressed="method === m.id"
             @click="selectMethod(m.id)"
           >
-            <component :is="m.icon" class="size-5" /> {{ m.label }}
+            <component :is="m.icon" class="size-5" /> {{ methodLabel(m.id) }}
           </button>
         </div>
 
@@ -165,7 +168,7 @@ const keys = computed(() => [
               class="btn btn-outline btn-sm flex-1"
               @click="addPayment(a)"
             >
-              {{ a === remaining ? 'Exact' : settings.money(a) }}
+              {{ a === remaining ? t('payment.exact') : settings.money(a) }}
             </button>
           </div>
 
@@ -175,11 +178,11 @@ const keys = computed(() => [
               inputmode="decimal"
               class="input h-12 text-right text-xl font-bold"
               :placeholder="settings.money(remaining)"
-              aria-label="Amount"
+              :aria-label="t('payment.amount')"
               @keydown.enter="addPayment()"
             />
             <button class="btn btn-primary h-12" :disabled="entryAmount <= 0" @click="addPayment()">
-              Add
+              {{ t('common.add') }}
             </button>
           </div>
 
@@ -188,7 +191,7 @@ const keys = computed(() => [
               v-for="k in keys"
               :key="k"
               class="btn btn-soft h-12 text-lg"
-              :aria-label="k === 'back' ? 'Backspace' : k"
+              :aria-label="k === 'back' ? t('common.backspace') : k"
               @click="press(k)"
             >
               <Delete v-if="k === 'back'" class="size-5" />
@@ -200,19 +203,23 @@ const keys = computed(() => [
           v-else
           class="rounded-2xl bg-success-soft p-4 text-center text-sm font-medium text-success"
         >
-          Fully paid<span v-if="change">, give {{ settings.money(change) }} change</span>.
+          {{
+            change
+              ? t('payment.fullyPaidChange', { amount: settings.money(change) })
+              : t('payment.fullyPaid')
+          }}
         </p>
       </div>
     </div>
 
     <template #footer>
-      <button class="btn btn-soft" @click="open = false">Cancel</button>
+      <button class="btn btn-soft" @click="open = false">{{ t('common.cancel') }}</button>
       <button
         class="btn btn-primary btn-lg flex-1"
         :disabled="remaining > 0 || busy"
         @click="complete"
       >
-        {{ busy ? 'Saving…' : 'Complete sale' }}
+        {{ busy ? t('common.saving') : t('payment.complete') }}
       </button>
     </template>
   </BaseModal>

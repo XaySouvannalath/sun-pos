@@ -18,6 +18,7 @@
     "mock:reset": "node -e \"require('fs').rmSync('.mock-db.json',{force:true});console.log('Mock data reset to src/mock/data/*.json')\""
   },
   "dependencies": {
+    "@fontsource/noto-sans-lao": "^5.3.0",
     "lucide-vue-next": "^1.0.0",
     "papaparse": "^5.7.0",
     "pinia": "^4.0.3",

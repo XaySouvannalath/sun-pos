@@ -2,6 +2,7 @@ import { computed, ref, watchEffect } from 'vue'
 import { defineStore } from 'pinia'
 import { api } from '@/api'
 import { persisted } from '@/composables/persisted'
+import { language } from '@/i18n'
 import { roundTo } from '@/utils/pos'
 import { embedded } from '@/utils/env'
 import type { MotionMode, Settings, ThemeMode } from '@/types'
@@ -98,5 +99,6 @@ export const useSettingsStore = defineStore('settings', () => {
     theme.value = isDark.value ? 'light' : 'dark'
   }
 
-  return { s, theme, motion, animate, load, save, money, round, isDark, toggleTheme }
+  // Interface language is per device too (see src/i18n).
+  return { s, theme, motion, animate, language, load, save, money, round, isDark, toggleTheme }
 })

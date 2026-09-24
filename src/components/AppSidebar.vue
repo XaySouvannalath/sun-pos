@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '@/i18n'
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import {
@@ -26,14 +27,20 @@ const router = useRouter()
 
 const links = computed(() =>
   [
-    { to: '/', label: 'Sell', icon: ShoppingCart },
-    { to: '/orders', label: 'Orders', icon: Receipt },
-    { to: '/shift', label: 'Shift', icon: Wallet },
-    { to: '/customers', label: 'Customers', icon: Users },
-    { to: '/products', label: 'Products', icon: Package, admin: true },
-    { to: '/inventory', label: 'Stock', icon: Boxes, admin: true, badge: catalog.lowStock.length },
-    { to: '/reports', label: 'Reports', icon: ChartColumn, admin: true },
-    { to: '/settings', label: 'Settings', icon: Settings, admin: true },
+    { to: '/', label: t('nav.sell'), icon: ShoppingCart },
+    { to: '/orders', label: t('nav.orders'), icon: Receipt },
+    { to: '/shift', label: t('nav.shift'), icon: Wallet },
+    { to: '/customers', label: t('nav.customers'), icon: Users },
+    { to: '/products', label: t('nav.products'), icon: Package, admin: true },
+    {
+      to: '/inventory',
+      label: t('nav.stock'),
+      icon: Boxes,
+      admin: true,
+      badge: catalog.lowStock.length,
+    },
+    { to: '/reports', label: t('nav.reports'), icon: ChartColumn, admin: true },
+    { to: '/settings', label: t('nav.settings'), icon: Settings, admin: true },
   ].filter((l) => !l.admin || auth.isAdmin),
 )
 
@@ -78,13 +85,13 @@ async function lock() {
     <div class="flex items-center gap-1 px-2 md:flex-col md:gap-2 md:py-4">
       <button
         class="btn btn-ghost btn-icon"
-        :title="settings.isDark ? 'Light theme' : 'Dark theme'"
+        :title="settings.isDark ? t('nav.lightTheme') : t('nav.darkTheme')"
         @click="settings.toggleTheme()"
       >
         <Sun v-if="settings.isDark" class="size-5" />
         <Moon v-else class="size-5" />
       </button>
-      <button class="btn btn-ghost btn-icon" title="Lock / switch staff" @click="lock">
+      <button class="btn btn-ghost btn-icon" :title="t('nav.lock')" @click="lock">
         <Lock class="size-5" />
       </button>
       <div

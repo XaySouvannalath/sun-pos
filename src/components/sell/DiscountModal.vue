@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '@/i18n'
 import { ref, watch } from 'vue'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import { useCartStore } from '@/stores/cart'
@@ -25,12 +26,14 @@ function apply(v = value.value) {
 </script>
 
 <template>
-  <BaseModal v-model="open" title="Order discount" size="sm">
+  <BaseModal v-model="open" :title="t('discount.title')" size="sm">
     <div class="space-y-4">
       <div class="segmented">
-        <button :aria-pressed="type === 'percent'" @click="type = 'percent'">Percent (%)</button>
+        <button :aria-pressed="type === 'percent'" @click="type = 'percent'">
+          {{ t('discount.percent') }}
+        </button>
         <button :aria-pressed="type === 'amount'" @click="type = 'amount'">
-          Amount ({{ settings.s.currency }})
+          {{ t('discount.amount', { currency: settings.s.currency }) }}
         </button>
       </div>
       <div v-if="type === 'percent'" class="grid grid-cols-4 gap-2">
@@ -44,7 +47,7 @@ function apply(v = value.value) {
         </button>
       </div>
       <div>
-        <label class="label" for="disc">Custom value</label>
+        <label class="label" for="disc">{{ t('discount.custom') }}</label>
         <input
           id="disc"
           v-model.number="value"
@@ -56,8 +59,8 @@ function apply(v = value.value) {
       </div>
     </div>
     <template #footer>
-      <button class="btn btn-soft" @click="apply(0)">Remove discount</button>
-      <button class="btn btn-primary flex-1" @click="apply()">Apply</button>
+      <button class="btn btn-soft" @click="apply(0)">{{ t('discount.remove') }}</button>
+      <button class="btn btn-primary flex-1" @click="apply()">{{ t('discount.apply') }}</button>
     </template>
   </BaseModal>
 </template>

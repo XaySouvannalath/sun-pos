@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '@/i18n'
 import { computed, ref, watch } from 'vue'
 import { Minus, Plus, Check } from 'lucide-vue-next'
 import BaseModal from '@/components/ui/BaseModal.vue'
@@ -77,9 +78,13 @@ function confirm() {
       <fieldset v-for="g in product.options" :key="g.id">
         <legend class="mb-2 flex items-center gap-2 text-sm font-semibold">
           {{ g.name }}
-          <span v-if="g.required" class="badge bg-primary-soft text-primary">Required</span>
-          <span v-else-if="g.multiple" class="text-xs font-normal text-ink-muted">Pick any</span>
-          <span v-else class="text-xs font-normal text-ink-muted">Optional</span>
+          <span v-if="g.required" class="badge bg-primary-soft text-primary">{{
+            t('common.required')
+          }}</span>
+          <span v-else-if="g.multiple" class="text-xs font-normal text-ink-muted">{{
+            t('sell.pickAny')
+          }}</span>
+          <span v-else class="text-xs font-normal text-ink-muted">{{ t('common.optional') }}</span>
         </legend>
         <div class="grid grid-cols-2 gap-2">
           <button
@@ -106,16 +111,20 @@ function confirm() {
 
     <template #footer>
       <div class="flex items-center gap-2">
-        <button class="btn btn-soft btn-icon" aria-label="Less" @click="qty = Math.max(1, qty - 1)">
+        <button
+          class="btn btn-soft btn-icon"
+          :aria-label="t('common.less')"
+          @click="qty = Math.max(1, qty - 1)"
+        >
           <Minus class="size-4" />
         </button>
         <span class="w-8 text-center text-lg font-bold">{{ qty }}</span>
-        <button class="btn btn-soft btn-icon" aria-label="More" @click="qty++">
+        <button class="btn btn-soft btn-icon" :aria-label="t('common.more')" @click="qty++">
           <Plus class="size-4" />
         </button>
       </div>
       <button class="btn btn-primary flex-1" :disabled="!valid" @click="confirm">
-        Add · {{ settings.money(lineTotal) }}
+        {{ t('sell.addTotal', { total: settings.money(lineTotal) }) }}
       </button>
     </template>
   </BaseModal>

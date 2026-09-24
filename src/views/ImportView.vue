@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { t } from '@/i18n'
 import { useRoute, useRouter } from 'vue-router'
 import {
   Package,
@@ -25,12 +26,14 @@ import {
   buildRows,
   downloadCsvTemplate,
   downloadExcelTemplate,
-  importSpecs,
+  getSpec,
+  importKinds,
   parseFile,
   parseText,
   type ParsedTable,
 } from '@/utils/importer'
 import type { ImportKind, ImportResult, ImportRowResult } from '@/types'
+import type { MessageKey } from '@/i18n'
 
 const route = useRoute()
 const router = useRouter()
@@ -47,8 +50,8 @@ const kinds: { kind: ImportKind; icon: typeof Package }[] = [
 ]
 
 const initial = route.query.type as ImportKind
-const kind = ref<ImportKind>(initial in importSpecs ? initial : 'products')
-const spec = computed(() => importSpecs[kind.value])
+const kind = ref<ImportKind>(importKinds.includes(initial) ? initial : 'products')
+const spec = computed(() => getSpec(kind.value))
 
 const table = ref<ParsedTable | null>(null)
 const source = ref('')
@@ -86,13 +89,13 @@ async function load(read: () => Promise<ParsedTable>, name: string) {
   readError.value = ''
   done.value = null
   try {
-    const t = await read()
-    if (!t.rows.length) throw new Error('No rows found below the heading row.')
-    table.value = t
+    const parsed = await read()
+    if (!parsed.rows.length) throw new Error(t('import.errors.noRows'))
+    table.value = parsed
     source.value = name
-    mapping.value = autoMap(t.headers, spec.value)
+    mapping.value = autoMap(parsed.headers, spec.value)
   } catch (e) {
-    readError.value = e instanceof Error ? e.message : 'Could not read the file.'
+    readError.value = e instanceof Error ? e.message : t('import.errors.read')
   }
 }
 
@@ -111,7 +114,7 @@ function onDrop(e: DragEvent) {
 
 function readPasted() {
   if (!pasted.value.trim()) return
-  void load(() => parseText(pasted.value), 'Pasted rows')
+  void load(() => parseText(pasted.value), t('import.pastedRows'))
   pasteOpen.value = false
 }
 
@@ -157,11 +160,11 @@ const shown = computed<ImportRowResult[]>(() => {
 
 const lineOf = (index: number) => table.value?.lineNumbers[index] ?? index + 2
 
-const actionStyle: Record<ImportRowResult['action'], { label: string; cls: string }> = {
-  create: { label: 'New', cls: 'bg-success-soft text-success' },
-  update: { label: 'Update', cls: 'bg-primary-soft text-primary' },
-  skip: { label: 'No change', cls: 'bg-surface-2 text-ink-muted' },
-  error: { label: 'Error', cls: 'bg-danger-soft text-danger' },
+const actionStyle: Record<ImportRowResult['action'], { label: MessageKey; cls: string }> = {
+  create: { label: 'import.result.create', cls: 'bg-success-soft text-success' },
+  update: { label: 'import.result.update', cls: 'bg-primary-soft text-primary' },
+  skip: { label: 'import.result.skip', cls: 'bg-surface-2 text-ink-muted' },
+  error: { label: 'import.result.error', cls: 'bg-danger-soft text-danger' },
 }
 
 async function runImport() {
@@ -177,35 +180,28 @@ async function runImport() {
     else if (kind.value === 'customers') await customers.load()
     else if (kind.value === 'staff') await auth.loadStaff()
     else await Promise.all([catalog.refreshProducts(), catalog.loadMoves(40)])
-    toast.show(`Imported ${rowsText(res.created + res.updated)}`, 'success')
+    toast.show(t('import.imported', { rows: rowsText(res.created + res.updated) }), 'success')
   } finally {
     importing.value = false
   }
 }
 
-const rowsText = (n: number) => `${n} ${n === 1 ? 'row' : 'rows'}`
+const rowsText = (n: number) => t('import.rows', { n })
 
-const noun: Record<ImportKind, string> = {
-  products: 'product',
-  customers: 'customer',
-  staff: 'person',
-  stock: 'product',
-}
-
-const destination: Record<ImportKind, { to: string; label: string }> = {
-  products: { to: '/products', label: 'View products' },
-  customers: { to: '/customers', label: 'View customers' },
-  staff: { to: '/settings', label: 'View staff' },
-  stock: { to: '/inventory', label: 'View stock' },
+const destination: Record<ImportKind, { to: string; label: MessageKey }> = {
+  products: { to: '/products', label: 'import.view.products' },
+  customers: { to: '/customers', label: 'import.view.customers' },
+  staff: { to: '/settings', label: 'import.view.staff' },
+  stock: { to: '/inventory', label: 'import.view.stock' },
 }
 </script>
 
 <template>
   <div class="page max-w-5xl space-y-5 pb-28">
     <div>
-      <h1 class="page-title">Import data</h1>
+      <h1 class="page-title">{{ t('import.title') }}</h1>
       <p class="mt-1 text-sm text-ink-muted">
-        Add or update many records at once from an Excel (.xlsx) or CSV file.
+        {{ t('import.subtitle') }}
       </p>
     </div>
 
@@ -213,7 +209,7 @@ const destination: Record<ImportKind, { to: string; label: string }> = {
     <div
       class="grid grid-cols-2 gap-3 lg:grid-cols-4"
       role="radiogroup"
-      aria-label="What to import"
+      :aria-label="t('import.what')"
     >
       <button
         v-for="k in kinds"
@@ -229,9 +225,9 @@ const destination: Record<ImportKind, { to: string; label: string }> = {
           class="size-6"
           :class="kind === k.kind ? 'text-primary' : 'text-ink-muted'"
         />
-        <span class="font-semibold">{{ importSpecs[k.kind].title }}</span>
+        <span class="font-semibold">{{ t(`import.kinds.${k.kind}.title`) }}</span>
         <span class="text-xs leading-snug text-ink-muted">{{
-          importSpecs[k.kind].description
+          t(`import.kinds.${k.kind}.description`)
         }}</span>
       </button>
     </div>
@@ -240,18 +236,24 @@ const destination: Record<ImportKind, { to: string; label: string }> = {
     <div v-if="done" class="card flex flex-wrap items-center gap-4 p-5">
       <CircleCheck class="size-10 text-success" />
       <div class="min-w-0 flex-1">
-        <p class="font-semibold">Import complete</p>
+        <p class="font-semibold">{{ t('import.complete') }}</p>
         <p class="text-sm text-ink-muted">
-          {{ done.created }} new · {{ done.updated }} updated · {{ done.skipped }} unchanged
+          {{
+            t('import.doneSummary', {
+              created: done.created,
+              updated: done.updated,
+              skipped: done.skipped,
+            })
+          }}
           <template v-if="done.failed">
-            · {{ rowsText(done.failed) }} skipped because of errors</template
+            · {{ t('import.doneFailed', { rows: rowsText(done.failed) }) }}</template
           >
         </p>
       </div>
       <RouterLink :to="destination[kind].to" class="btn btn-soft">{{
-        destination[kind].label
+        t(destination[kind].label)
       }}</RouterLink>
-      <button class="btn btn-primary" @click="reset">Import another file</button>
+      <button class="btn btn-primary" @click="reset">{{ t('import.another') }}</button>
     </div>
 
     <template v-else>
@@ -259,15 +261,14 @@ const destination: Record<ImportKind, { to: string; label: string }> = {
       <section class="card space-y-4 p-5">
         <div class="flex flex-wrap items-start gap-3">
           <div class="min-w-0 flex-1 basis-64">
-            <h2 class="font-semibold">1. Prepare your file</h2>
+            <h2 class="font-semibold">{{ t('import.step1') }}</h2>
             <p class="mt-1 text-sm text-ink-muted">
-              Put one {{ noun[kind] }} per row, with column headings in the first row. The headings
-              don't need to match exactly.
+              {{ t(`import.step1Help.${kind}`) }}
             </p>
           </div>
           <div v-if="canDownload" class="flex gap-2">
             <button class="btn btn-outline btn-sm" @click="downloadExcelTemplate(spec)">
-              <Download class="size-4" /> Excel template
+              <Download class="size-4" /> {{ t('import.excelTemplate') }}
             </button>
             <button class="btn btn-ghost btn-sm" @click="downloadCsvTemplate(spec)">CSV</button>
           </div>
@@ -276,18 +277,20 @@ const destination: Record<ImportKind, { to: string; label: string }> = {
           <table class="table">
             <thead>
               <tr>
-                <th>Column</th>
-                <th>Needed</th>
-                <th class="hidden sm:table-cell">What to put</th>
-                <th class="hidden md:table-cell">Example</th>
+                <th>{{ t('import.col.column') }}</th>
+                <th>{{ t('import.col.needed') }}</th>
+                <th class="hidden sm:table-cell">{{ t('import.col.what') }}</th>
+                <th class="hidden md:table-cell">{{ t('import.col.example') }}</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="(f, i) in spec.fields" :key="f.key">
                 <td class="font-medium">{{ f.label }}</td>
                 <td>
-                  <span v-if="f.required" class="badge bg-primary-soft text-primary">Required</span>
-                  <span v-else class="text-xs text-ink-muted">Optional</span>
+                  <span v-if="f.required" class="badge bg-primary-soft text-primary">{{
+                    t('common.required')
+                  }}</span>
+                  <span v-else class="text-xs text-ink-muted">{{ t('common.optional') }}</span>
                 </td>
                 <td class="hidden text-ink-muted sm:table-cell">{{ f.help }}</td>
                 <td class="hidden font-mono text-xs text-ink-muted md:table-cell">
@@ -302,7 +305,7 @@ const destination: Record<ImportKind, { to: string; label: string }> = {
 
       <!-- 2. Choose file -->
       <section class="card space-y-3 p-5">
-        <h2 class="font-semibold">2. Add your file</h2>
+        <h2 class="font-semibold">{{ t('import.step2') }}</h2>
         <div
           v-if="!table"
           class="flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed p-8 text-center transition"
@@ -312,10 +315,10 @@ const destination: Record<ImportKind, { to: string; label: string }> = {
           @drop.prevent="onDrop"
         >
           <FileUp class="size-10 text-ink-muted" />
-          <p class="font-medium">Drop an Excel or CSV file here</p>
+          <p class="font-medium">{{ t('import.drop') }}</p>
           <div class="flex flex-wrap justify-center gap-2">
             <label class="btn btn-primary cursor-pointer">
-              <FileSpreadsheet class="size-4" /> Choose file
+              <FileSpreadsheet class="size-4" /> {{ t('import.chooseFile') }}
               <input
                 id="import-file"
                 type="file"
@@ -325,25 +328,28 @@ const destination: Record<ImportKind, { to: string; label: string }> = {
               />
             </label>
             <button class="btn btn-soft" @click="pasteOpen = !pasteOpen">
-              <ClipboardPaste class="size-4" /> Paste rows
+              <ClipboardPaste class="size-4" /> {{ t('import.paste') }}
             </button>
           </div>
-          <p class="text-xs text-ink-muted">.xlsx, .csv or .tsv · up to 5,000 rows</p>
+          <p class="text-xs text-ink-muted">{{ t('import.fileTypes') }}</p>
         </div>
         <div v-else class="flex items-center gap-3 rounded-xl bg-surface-2 p-3">
           <FileSpreadsheet class="size-6 text-primary" />
           <div class="min-w-0 flex-1">
             <p class="truncate font-medium">{{ source }}</p>
             <p class="text-xs text-ink-muted">
-              {{ table.rows.length }} rows · {{ table.headers.length }} columns
+              {{ rowsText(table.rows.length) }} ·
+              {{ t('import.columns', { n: table.headers.length }) }}
             </p>
           </div>
-          <button class="btn btn-ghost btn-sm" @click="reset"><X class="size-4" /> Remove</button>
+          <button class="btn btn-ghost btn-sm" @click="reset">
+            <X class="size-4" /> {{ t('common.remove') }}
+          </button>
         </div>
 
         <div v-if="pasteOpen && !table" class="space-y-2">
           <label class="label" for="paste">
-            Copy cells in Excel or Google Sheets (including the heading row) and paste them here
+            {{ t('import.pasteHelp') }}
           </label>
           <textarea
             id="paste"
@@ -353,7 +359,7 @@ const destination: Record<ImportKind, { to: string; label: string }> = {
             :placeholder="spec.fields.map((f) => f.label).join('\t')"
           />
           <button class="btn btn-primary btn-sm" :disabled="!pasted.trim()" @click="readPasted">
-            Use pasted rows
+            {{ t('import.usePasted') }}
           </button>
         </div>
         <p v-if="readError" class="flex items-center gap-2 text-sm text-danger">
@@ -363,9 +369,9 @@ const destination: Record<ImportKind, { to: string; label: string }> = {
 
       <!-- 3. Match columns -->
       <section v-if="table" class="card space-y-3 p-5">
-        <h2 class="font-semibold">3. Check the columns</h2>
+        <h2 class="font-semibold">{{ t('import.step3') }}</h2>
         <p class="text-sm text-ink-muted">
-          We matched your columns automatically. Change any that are wrong.
+          {{ t('import.step3Help') }}
         </p>
         <div class="grid gap-3 sm:grid-cols-2">
           <div v-for="f in spec.fields" :key="f.key">
@@ -378,35 +384,35 @@ const destination: Record<ImportKind, { to: string; label: string }> = {
               class="input"
               :class="f.required && mapping[f.key] == null && 'border-danger'"
             >
-              <option :value="null">— Not in my file —</option>
+              <option :value="null">— {{ t('import.notInFile') }} —</option>
               <option v-for="(h, i) in table.headers" :key="i" :value="i">{{ h }}</option>
             </select>
           </div>
         </div>
         <p v-if="missing.length" class="flex items-center gap-2 text-sm text-danger">
-          <CircleAlert class="size-4" /> Choose a column for:
+          <CircleAlert class="size-4" /> {{ t('import.chooseColumn') }}
           {{ missing.map((f) => f.label).join(', ') }}
         </p>
         <p v-if="unusedColumns.length" class="text-xs text-ink-muted">
-          Not imported: {{ unusedColumns.join(', ') }}
+          {{ t('import.notImported', { cols: unusedColumns.join(', ') }) }}
         </p>
       </section>
 
       <!-- 4. Review -->
       <section v-if="table && !missing.length" class="card space-y-3 p-5">
         <div class="flex flex-wrap items-center gap-3">
-          <h2 class="flex-1 font-semibold">4. Review</h2>
-          <span v-if="previewing" class="text-sm text-ink-muted">Checking rows…</span>
+          <h2 class="flex-1 font-semibold">{{ t('import.step4') }}</h2>
+          <span v-if="previewing" class="text-sm text-ink-muted">{{ t('import.checking') }}</span>
         </div>
         <template v-if="preview">
           <div class="flex flex-wrap gap-2">
             <button
               v-for="f in [
-                { id: 'all', label: `All ${preview.rows.length}` },
-                { id: 'create', label: `New ${preview.created}` },
-                { id: 'update', label: `Updates ${preview.updated}` },
-                { id: 'skip', label: `No change ${preview.skipped}` },
-                { id: 'error', label: `Errors ${preview.failed}` },
+                { id: 'all', label: `${t('common.all')} ${preview.rows.length}` },
+                { id: 'create', label: `${t('import.result.create')} ${preview.created}` },
+                { id: 'update', label: `${t('import.result.updates')} ${preview.updated}` },
+                { id: 'skip', label: `${t('import.result.skip')} ${preview.skipped}` },
+                { id: 'error', label: `${t('import.result.errors')} ${preview.failed}` },
               ] as const"
               :key="f.id"
               class="chip h-9"
@@ -427,10 +433,10 @@ const destination: Record<ImportKind, { to: string; label: string }> = {
             <table class="table">
               <thead class="sticky top-0 bg-surface">
                 <tr>
-                  <th class="w-16">Row</th>
-                  <th class="w-28">Result</th>
-                  <th>{{ kind === 'stock' ? 'Product' : 'Name' }}</th>
-                  <th>Details</th>
+                  <th class="w-16">{{ t('import.col.row') }}</th>
+                  <th class="w-28">{{ t('import.col.result') }}</th>
+                  <th>{{ kind === 'stock' ? t('products.product') : t('fields.name') }}</th>
+                  <th>{{ t('import.col.details') }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -438,7 +444,7 @@ const destination: Record<ImportKind, { to: string; label: string }> = {
                   <td class="text-ink-muted tabular-nums">{{ lineOf(r.index) }}</td>
                   <td>
                     <span class="badge" :class="actionStyle[r.action].cls">{{
-                      actionStyle[r.action].label
+                      t(actionStyle[r.action].label)
                     }}</span>
                   </td>
                   <td class="font-medium">{{ r.label }}</td>
@@ -447,13 +453,15 @@ const destination: Record<ImportKind, { to: string; label: string }> = {
                   </td>
                 </tr>
                 <tr v-if="!shown.length">
-                  <td colspan="4" class="py-8 text-center text-ink-muted">Nothing to show.</td>
+                  <td colspan="4" class="py-8 text-center text-ink-muted">
+                    {{ t('import.nothing') }}
+                  </td>
                 </tr>
               </tbody>
             </table>
           </div>
           <p v-if="shown.length > 300" class="text-xs text-ink-muted">
-            Showing the first 300 of {{ shown.length }} rows.
+            {{ t('import.showingFirst', { n: shown.length }) }}
           </p>
         </template>
       </section>
@@ -466,18 +474,20 @@ const destination: Record<ImportKind, { to: string; label: string }> = {
     >
       <p class="min-w-0 flex-1 text-sm">
         <template v-if="toImport">
-          <b>{{ preview.created }}</b> new and <b>{{ preview.updated }}</b> updated
+          {{ t('import.barSummary', { created: preview.created, updated: preview.updated }) }}
           <span v-if="preview.failed" class="text-danger">
-            · {{ rowsText(preview.failed) }} with errors will be skipped</span
+            · {{ t('import.barFailed', { rows: rowsText(preview.failed) }) }}</span
           >
         </template>
         <template v-else-if="preview.failed">
-          <span class="text-danger">Every row has an error.</span> Fix the file and add it again.
+          <span class="text-danger">{{ t('import.allErrors') }}</span> {{ t('import.fixFile') }}
         </template>
-        <template v-else>Everything in this file is already up to date.</template>
+        <template v-else>{{ t('import.upToDate') }}</template>
       </p>
       <button class="btn btn-primary" :disabled="!toImport || importing" @click="runImport">
-        {{ importing ? 'Importing…' : `Import ${rowsText(toImport)}` }}
+        {{
+          importing ? t('import.importing') : t('import.importRows', { rows: rowsText(toImport) })
+        }}
       </button>
     </div>
   </div>

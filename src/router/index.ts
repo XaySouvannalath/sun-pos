@@ -1,5 +1,7 @@
 import { createMemoryHistory, createRouter, createWebHistory } from 'vue-router'
 import SellView from '@/views/SellView.vue'
+import { watch } from 'vue'
+import { language, t, type MessageKey } from '@/i18n'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
 import { useToastStore } from '@/stores/toast'
@@ -9,7 +11,7 @@ const router = createRouter({
   // The embedded preview can't use the page URL, so it keeps routes in memory.
   history: embedded ? createMemoryHistory() : createWebHistory(import.meta.env.BASE_URL),
   routes: [
-    { path: '/', name: 'sell', component: SellView, meta: { title: 'Sell' } },
+    { path: '/', name: 'sell', component: SellView, meta: { title: 'nav.sell' } },
     {
       path: '/lock',
       name: 'lock',
@@ -20,49 +22,49 @@ const router = createRouter({
       path: '/orders',
       name: 'orders',
       component: () => import('@/views/OrdersView.vue'),
-      meta: { title: 'Orders' },
+      meta: { title: 'nav.orders' },
     },
     {
       path: '/shift',
       name: 'shift',
       component: () => import('@/views/ShiftView.vue'),
-      meta: { title: 'Shift' },
+      meta: { title: 'nav.shift' },
     },
     {
       path: '/customers',
       name: 'customers',
       component: () => import('@/views/CustomersView.vue'),
-      meta: { title: 'Customers' },
+      meta: { title: 'nav.customers' },
     },
     {
       path: '/products',
       name: 'products',
       component: () => import('@/views/ProductsView.vue'),
-      meta: { title: 'Products', admin: true },
+      meta: { title: 'nav.products', admin: true },
     },
     {
       path: '/inventory',
       name: 'inventory',
       component: () => import('@/views/InventoryView.vue'),
-      meta: { title: 'Stock', admin: true },
+      meta: { title: 'nav.stock', admin: true },
     },
     {
       path: '/reports',
       name: 'reports',
       component: () => import('@/views/ReportsView.vue'),
-      meta: { title: 'Reports', admin: true },
+      meta: { title: 'nav.reports', admin: true },
     },
     {
       path: '/import',
       name: 'import',
       component: () => import('@/views/ImportView.vue'),
-      meta: { title: 'Import', admin: true },
+      meta: { title: 'nav.import', admin: true },
     },
     {
       path: '/settings',
       name: 'settings',
       component: () => import('@/views/SettingsView.vue'),
-      meta: { title: 'Settings', admin: true },
+      meta: { title: 'nav.settings', admin: true },
     },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
@@ -78,18 +80,22 @@ router.beforeEach(async (to) => {
     try {
       await app.load()
     } catch (e) {
-      useToastStore().show(e instanceof Error ? e.message : 'Could not load data', 'error', 5000)
+      useToastStore().show(e instanceof Error ? e.message : t('errors.load'), 'error', 5000)
     }
   }
 })
 
-router.afterEach((to) => {
-  document.title = to.meta.title ? `${to.meta.title} · Sun POS` : 'Sun POS'
-})
+function setTitle() {
+  const key = router.currentRoute.value.meta.title
+  document.title = key ? `${t(key)} · Sun POS` : 'Sun POS'
+}
+router.afterEach(setTitle)
+watch(language, setTitle)
 
 declare module 'vue-router' {
   interface RouteMeta {
-    title?: string
+    /** Translation key for the browser tab title. */
+    title?: MessageKey
     public?: boolean
     admin?: boolean
   }

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { fmtDateTime as fmtTime, t } from '@/i18n'
 import { Search, Printer, RotateCcw, Download } from 'lucide-vue-next'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import OrderReceipt from '@/components/OrderReceipt.vue'
@@ -87,22 +88,12 @@ const detailOpen = computed({
   },
 })
 
-const methodLabel = { cash: 'Cash', card: 'Card', qr: 'QR' }
-const typeLabel = { 'dine-in': 'Dine in', takeaway: 'Takeaway', delivery: 'Delivery' }
-const fmtTime = (t: number) =>
-  new Date(t).toLocaleString([], {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-
 const print = () => window.print()
 
 async function doRefund() {
   if (!selected.value) return
   const updated = await orders.refund(selected.value.id, refundReason.value.trim(), restock.value)
-  toast.show(`Order #${updated.number} refunded`, 'success')
+  toast.show(t('orders.refunded', { n: updated.number }), 'success')
   selected.value = updated
   const i = filtered.value.findIndex((o) => o.id === updated.id)
   if (i >= 0) filtered.value[i] = updated
@@ -120,20 +111,20 @@ async function exportCsv() {
   }
   const rows: (string | number)[][] = [
     [
-      'Number',
-      'Date',
-      'Type',
-      'Table',
-      'Customer',
-      'Staff',
-      'Items',
-      'Subtotal',
-      'Discount',
-      'Service',
-      'Tax',
-      'Total',
-      'Payment',
-      'Status',
+      t('orders.csv.number'),
+      t('orders.csv.date'),
+      t('orders.csv.type'),
+      t('orders.csv.table'),
+      t('orders.csv.customer'),
+      t('orders.csv.staff'),
+      t('orders.csv.items'),
+      t('receipt.subtotal'),
+      t('cart.discount'),
+      t('receipt.service'),
+      t('orders.csv.tax'),
+      t('common.total'),
+      t('orders.csv.payment'),
+      t('orders.csv.status'),
     ],
   ]
   for (const o of all)
@@ -160,9 +151,9 @@ async function exportCsv() {
 <template>
   <div class="page space-y-4">
     <div class="flex flex-wrap items-center gap-3">
-      <h1 class="page-title flex-1">Orders</h1>
+      <h1 class="page-title flex-1">{{ t('nav.orders') }}</h1>
       <button v-if="canDownload" class="btn btn-outline btn-sm" @click="exportCsv">
-        <Download class="size-4" /> Export CSV
+        <Download class="size-4" /> {{ t('orders.exportCsv') }}
       </button>
     </div>
 
@@ -172,8 +163,8 @@ async function exportCsv() {
         <input
           v-model="q"
           class="input pl-10"
-          placeholder="Order #, table, customer, item, staff"
-          aria-label="Search orders"
+          :placeholder="t('orders.searchPlaceholder')"
+          :aria-label="t('orders.searchLabel')"
         />
       </div>
       <div class="segmented">
@@ -184,26 +175,34 @@ async function exportCsv() {
           :aria-pressed="range === r"
           @click="range = r"
         >
-          {{ r === 'today' ? 'Today' : r === 'all' ? 'All' : `${r} days` }}
+          {{
+            r === 'today'
+              ? t('range.today')
+              : r === 'all'
+                ? t('common.all')
+                : t('range.days', { n: r })
+          }}
         </button>
       </div>
       <div class="segmented">
         <button
           v-for="s in ['all', 'completed', 'refunded'] as const"
           :key="s"
-          class="px-3 capitalize"
+          class="px-3"
           :aria-pressed="status === s"
           @click="status = s"
         >
-          {{ s }}
+          {{ t(`orders.status.${s}`) }}
         </button>
       </div>
     </div>
 
     <p class="text-sm text-ink-muted">
-      {{ total }} orders<template v-if="allLoaded">
-        · net sales <b class="text-ink">{{ settings.money(totalShown) }}</b></template
-      ><span v-if="loading"> · loading…</span>
+      {{ t('orders.count', { n: total })
+      }}<template v-if="allLoaded">
+        · {{ t('orders.netSales') }}
+        <b class="text-ink">{{ settings.money(totalShown) }}</b></template
+      ><span v-if="loading"> · {{ t('common.loading') }}</span>
     </p>
 
     <div class="card overflow-x-auto">
@@ -211,12 +210,12 @@ async function exportCsv() {
         <thead>
           <tr>
             <th>#</th>
-            <th>Time</th>
-            <th class="hidden md:table-cell">Items</th>
-            <th class="hidden sm:table-cell">Type</th>
-            <th class="hidden lg:table-cell">Staff</th>
-            <th>Payment</th>
-            <th class="text-right">Total</th>
+            <th>{{ t('orders.col.time') }}</th>
+            <th class="hidden md:table-cell">{{ t('orders.csv.items') }}</th>
+            <th class="hidden sm:table-cell">{{ t('orders.csv.type') }}</th>
+            <th class="hidden lg:table-cell">{{ t('orders.csv.staff') }}</th>
+            <th>{{ t('orders.csv.payment') }}</th>
+            <th class="text-right">{{ t('common.total') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -232,17 +231,19 @@ async function exportCsv() {
               {{ o.lines.map((l) => `${l.qty}× ${l.name}`).join(', ') }}
             </td>
             <td class="hidden sm:table-cell">
-              {{ typeLabel[o.orderType]
-              }}<span v-if="o.table" class="text-ink-muted"> · T{{ o.table }}</span>
+              {{ t(`orderType.${o.orderType}`)
+              }}<span v-if="o.table" class="text-ink-muted">
+                · {{ t('receipt.table', { n: o.table }) }}</span
+              >
             </td>
             <td class="hidden text-ink-muted lg:table-cell">{{ o.staffName }}</td>
             <td>
               <span class="text-ink-muted">{{
-                o.payments.map((p) => methodLabel[p.method]).join(' + ')
+                o.payments.map((p) => t(`payMethod.${p.method}`)).join(' + ')
               }}</span>
-              <span v-if="o.status === 'refunded'" class="badge ml-2 bg-danger-soft text-danger"
-                >Refunded</span
-              >
+              <span v-if="o.status === 'refunded'" class="badge ml-2 bg-danger-soft text-danger">{{
+                t('orders.status.refunded')
+              }}</span>
             </td>
             <td
               class="text-right font-semibold"
@@ -252,57 +253,77 @@ async function exportCsv() {
             </td>
           </tr>
           <tr v-if="!filtered.length && !loading">
-            <td colspan="7" class="py-12 text-center text-ink-muted">No orders found.</td>
+            <td colspan="7" class="py-12 text-center text-ink-muted">{{ t('orders.none') }}</td>
           </tr>
         </tbody>
       </table>
     </div>
     <div v-if="!allLoaded" class="text-center">
-      <button class="btn btn-soft" :disabled="loading" @click="load(true)">Show more</button>
+      <button class="btn btn-soft" :disabled="loading" @click="load(true)">
+        {{ t('common.showMore') }}
+      </button>
     </div>
 
-    <BaseModal v-model="detailOpen" :title="selected ? `Order #${selected.number}` : ''" size="md">
+    <BaseModal
+      v-model="detailOpen"
+      :title="selected ? t('receipt.order', { n: selected.number }) : ''"
+      size="md"
+    >
       <div v-if="selected" class="rounded-2xl bg-surface-2 p-4">
         <OrderReceipt :order="selected" />
       </div>
       <p v-if="selected?.refund" class="mt-3 text-sm text-ink-muted">
-        Refunded {{ fmtTime(selected.refund.at) }} by {{ selected.refund.by
+        {{ t('orders.refundedBy', { time: fmtTime(selected.refund.at), name: selected.refund.by })
         }}<template v-if="selected.refund.reason">: “{{ selected.refund.reason }}”</template>
       </p>
       <template #footer>
         <button v-if="canPrint" class="btn btn-soft flex-1" @click="print">
-          <Printer class="size-4" /> Reprint
+          <Printer class="size-4" /> {{ t('orders.reprint') }}
         </button>
         <button
           v-if="selected?.status === 'completed' && auth.isAdmin"
           class="btn btn-danger flex-1"
           @click="refundOpen = true"
         >
-          <RotateCcw class="size-4" /> Refund
+          <RotateCcw class="size-4" /> {{ t('orders.refund') }}
         </button>
       </template>
     </BaseModal>
 
-    <BaseModal v-model="refundOpen" title="Refund order" size="sm">
+    <BaseModal v-model="refundOpen" :title="t('orders.refundTitle')" size="sm">
       <div v-if="selected" class="space-y-4">
         <p class="text-sm">
-          Refund <b>{{ settings.money(selected.total) }}</b> for order #{{ selected.number }}?
+          {{
+            t('orders.refundConfirm', {
+              amount: settings.money(selected.total),
+              n: selected.number,
+            })
+          }}
           <span v-if="selected.payments.some((p) => p.method === 'cash')" class="text-ink-muted">
-            Cash refunds are deducted from the current shift's drawer.</span
+            {{ t('orders.cashRefundNote') }}</span
           >
         </p>
         <div>
-          <label class="label" for="reason">Reason</label>
-          <input id="reason" v-model="refundReason" class="input" placeholder="e.g. Wrong order" />
+          <label class="label" for="reason">{{ t('fields.reason') }}</label>
+          <input
+            id="reason"
+            v-model="refundReason"
+            class="input"
+            :placeholder="t('orders.reasonPlaceholder')"
+          />
         </div>
         <label class="flex items-center gap-2 text-sm">
           <input v-model="restock" type="checkbox" class="size-4 accent-[var(--c-primary)]" />
-          Return items to stock
+          {{ t('orders.restock') }}
         </label>
       </div>
       <template #footer>
-        <button class="btn btn-soft flex-1" @click="refundOpen = false">Cancel</button>
-        <button class="btn btn-danger flex-1" @click="doRefund">Confirm refund</button>
+        <button class="btn btn-soft flex-1" @click="refundOpen = false">
+          {{ t('common.cancel') }}
+        </button>
+        <button class="btn btn-danger flex-1" @click="doRefund">
+          {{ t('orders.confirmRefund') }}
+        </button>
       </template>
     </BaseModal>
   </div>
