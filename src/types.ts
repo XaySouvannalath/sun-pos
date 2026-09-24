@@ -327,3 +327,36 @@ export interface BackupFile {
   at: number
   data: DbData
 }
+
+// ----- Bulk import (POST /import/:kind) -----
+
+export type ImportKind = 'products' | 'customers' | 'staff' | 'stock'
+
+/** A spreadsheet cell as sent to the import endpoint. Strings are parsed leniently ("1,250.50", "yes"). */
+export type ImportCell = string | number | boolean | null
+
+export interface ImportRequest {
+  /** One object per spreadsheet row, keyed by field name (e.g. { name, category, price }). */
+  rows: Record<string, ImportCell>[]
+  /** true: check every row and report what would happen, without saving anything. */
+  dryRun?: boolean
+}
+
+export interface ImportRowResult {
+  /** Position in the `rows` array (0-based). */
+  index: number
+  action: 'create' | 'update' | 'skip' | 'error'
+  /** What the row refers to, e.g. the product name. */
+  label: string
+  /** Why a row failed, or a note such as "New category: Juices". */
+  message: string
+}
+
+export interface ImportResult {
+  dryRun: boolean
+  created: number
+  updated: number
+  skipped: number
+  failed: number
+  rows: ImportRowResult[]
+}

@@ -19,15 +19,19 @@
   },
   "dependencies": {
     "lucide-vue-next": "^1.0.0",
+    "papaparse": "^5.7.0",
     "pinia": "^4.0.3",
+    "read-excel-file": "^9.3.10",
     "vue": "^3.5.42",
-    "vue-router": "^5.3.1"
+    "vue-router": "^5.3.1",
+    "write-excel-file": "^4.1.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "@tsconfig/node24": "^24.0.5",
     "@types/jsdom": "^30.0.0",
     "@types/node": "^24.13.4",
+    "@types/papaparse": "^5.5.2",
     "@vitejs/plugin-vue": "^6.0.8",
     "@vitest/eslint-plugin": "^1.6.27",
     "@vue/eslint-config-typescript": "^14.9.0",

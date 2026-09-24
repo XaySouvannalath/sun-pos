@@ -23,6 +23,8 @@ large touch targets, and a comfortable dark theme.
   methods, categories, order types and staff.
 - **Staff & roles**: PIN login. Managers get everything; cashiers can sell, run shifts and manage customers.
 - **Settings**: store info, currency (USD, LAK, THB, EUR, VND), tax, service charge, theme, and JSON backup/restore.
+- **Import from Excel or CSV**: products, customers, staff and stock counts. Columns are matched automatically, and
+  every row is checked in a preview before anything is saved. Excel and CSV templates are included.
 
 The app talks to a REST API. A **mock backend is included**, so it runs right after cloning, with a sample menu,
 staff, customers and 14 days of demo sales. Clear the demo sales under **Settings → Data**.
@@ -48,7 +50,7 @@ npm run build:preview  # single-file preview at dist-preview/sun-pos.html (no pr
 
 ## Backend and API
 
-The frontend calls the REST API described in **[docs/API.md](docs/API.md)** (48 endpoints).
+The frontend calls the REST API described in **[docs/API.md](docs/API.md)** (52 endpoints).
 
 - **Out of the box:** `npm run dev` serves a mock backend at `/api/v1`. Its starting data is in
   `src/mock/data/*.json`, and changes are saved to `.mock-db.json` (git-ignored).

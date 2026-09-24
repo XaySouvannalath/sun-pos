@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { Search, UserPlus, Star, Trash2, Pencil } from 'lucide-vue-next'
+import { FileSpreadsheet, Search, UserPlus, Star, Trash2, Pencil } from 'lucide-vue-next'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import CustomerForm from '@/components/CustomerForm.vue'
 import { api } from '@/api'
@@ -65,6 +65,13 @@ async function remove() {
   <div class="page space-y-4">
     <div class="flex flex-wrap items-center gap-3">
       <h1 class="page-title flex-1">Customers</h1>
+      <RouterLink
+        v-if="auth.isAdmin"
+        :to="{ path: '/import', query: { type: 'customers' } }"
+        class="btn btn-outline"
+      >
+        <FileSpreadsheet class="size-4" /> Import
+      </RouterLink>
       <button class="btn btn-primary" @click="openForm(null)">
         <UserPlus class="size-4" /> Add customer
       </button>

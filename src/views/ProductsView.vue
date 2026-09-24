@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Plus, Search, Pencil, Trash2 } from 'lucide-vue-next'
+import { FileSpreadsheet, Plus, Search, Pencil, Trash2 } from 'lucide-vue-next'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import ProductEditor from '@/components/ProductEditor.vue'
 import { useCatalogStore } from '@/stores/catalog'
@@ -80,6 +80,13 @@ const countIn = (id: string) => catalog.products.filter((p) => p.categoryId === 
           Categories
         </button>
       </div>
+      <RouterLink
+        v-if="tab === 'products'"
+        :to="{ path: '/import', query: { type: 'products' } }"
+        class="btn btn-outline"
+      >
+        <FileSpreadsheet class="size-4" /> Import
+      </RouterLink>
       <button v-if="tab === 'products'" class="btn btn-primary" @click="edit(null)">
         <Plus class="size-4" /> Add product
       </button>

@@ -6,7 +6,7 @@ setting. The screens don't need to change.
 
 - [How it works](#how-it-works) and [switching to your backend](#switching-to-your-backend)
 - [The mock backend](#the-mock-backend) and its JSON data files
-- [REST API reference](#rest-api-reference): 48 endpoints
+- [REST API reference](#rest-api-reference): 52 endpoints
 - [Building your backend](#building-your-backend): a checklist and the contract tests
 
 Types for every request and response are in [`src/types.ts`](../src/types.ts).
@@ -315,6 +315,59 @@ All take `?from=&to=` (epoch ms, `to` exclusive). The app sends the shop's local
 
 `profit` is an estimate: revenue before tax and service, minus each product's current `cost`.
 
+### Bulk import (manager)
+
+Used by the **Import** screen (Settings → Data, or the Import buttons on Products, Customers and Stock). The app reads
+the Excel or CSV file in the browser, matches its columns to the fields below, and sends the rows as JSON.
+
+| Method | Path                | Fields in each row (required in bold)                                                                                                             | Matches existing records by     |
+| ------ | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| `POST` | `/import/products`  | **`name`**, **`category`** (name; new names create the category), **`price`**, `cost`, `sku`, `barcode`, `emoji`, `stock`, `lowStockAt`, `active` | SKU, then barcode, then name    |
+| `POST` | `/import/customers` | **`name`**, `phone`, `email`, `note`, `points` (opening balance)                                                                                  | Phone (digits only), then email |
+| `POST` | `/import/staff`     | **`name`**, `role` (`manager` or `cashier`), `pin` (required for new staff)                                                                       | Name                            |
+| `POST` | `/import/stock`     | **`code`** (SKU or barcode), **`quantity`** (counted level), `reason`                                                                             | SKU or barcode                  |
+
+Request:
+
+```json
+{
+  "dryRun": true,
+  "rows": [
+    { "name": "Iced Americano", "category": "Coffee", "price": "3.25", "sku": "SKU-101" },
+    { "name": "Mystery Item", "category": "Coffee", "price": "ask staff" }
+  ]
+}
+```
+
+Response (`200`):
+
+```json
+{
+  "dryRun": true,
+  "created": 1,
+  "updated": 0,
+  "skipped": 0,
+  "failed": 1,
+  "rows": [
+    { "index": 0, "action": "create", "label": "Iced Americano", "message": "" },
+    { "index": 1, "action": "error", "label": "Mystery Item", "message": "Price must be a number" }
+  ]
+}
+```
+
+Rules:
+
+- **`dryRun: true` saves nothing.** The app uses it to show the preview, then sends the same rows with
+  `dryRun: false`.
+- Rows with errors are skipped and reported. The other rows are saved.
+- `action` is `create`, `update`, `skip` (already up to date) or `error`. `index` is the row's position in `rows`.
+- Values may be strings or numbers. Numbers are read leniently (`1,250.50`, `1.250,50`, `$3.75`, `25 000`), and
+  yes/no fields accept `yes/no`, `true/false` and `1/0`.
+- On update, empty cells keep the current value.
+- A stock change from `/import/products` or `/import/stock` is written to the stock movement log. Products that didn't
+  track stock start tracking.
+- At most 5,000 rows per request.
+
 ### Backup and admin (manager)
 
 | Method | Path           | Body                                                                | Response                                                                                                                           |
@@ -358,4 +411,5 @@ The screens use the Pinia stores. Each store keeps a cached copy of its data and
 | `useShiftStore`     | `load`, `open`, `moveCash`, `close`                                                                                                   | `/shifts/*`                                 |
 | `useAppStore`       | `load` (everything needed after sign-in)                                                                                              | several                                     |
 
-The Orders, Reports, Shift history and customer history screens call `api.*` directly for their lists.
+The Orders, Reports, Shift history, customer history and Import screens call `api.*` directly.
+File reading, column matching and templates for the import are in `src/utils/importer.ts`.

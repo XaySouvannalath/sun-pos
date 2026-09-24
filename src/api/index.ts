@@ -8,6 +8,9 @@ import type {
   Customer,
   CustomerInput,
   HeldOrder,
+  ImportKind,
+  ImportRequest,
+  ImportResult,
   HeldOrderInput,
   LoginResponse,
   Order,
@@ -144,6 +147,12 @@ export const api = {
   backup: {
     export: () => request<BackupFile>('GET', '/backup'),
     restore: (file: unknown) => request<null>('POST', '/backup', { body: file }),
+  },
+
+  import: {
+    /** Bulk create/update from spreadsheet rows. With dryRun, nothing is saved. */
+    run: (kind: ImportKind, body: ImportRequest) =>
+      request<ImportResult>('POST', `/import/${kind}`, { body }),
   },
 
   admin: {

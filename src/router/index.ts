@@ -53,6 +53,12 @@ const router = createRouter({
       meta: { title: 'Reports', admin: true },
     },
     {
+      path: '/import',
+      name: 'import',
+      component: () => import('@/views/ImportView.vue'),
+      meta: { title: 'Import', admin: true },
+    },
+    {
       path: '/settings',
       name: 'settings',
       component: () => import('@/views/SettingsView.vue'),

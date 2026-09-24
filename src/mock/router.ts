@@ -822,6 +822,286 @@ export function createApi(db: Db) {
     )
   })
 
+  // ----- Bulk import ---------------------------------------------------------
+  // Rows come from spreadsheets, so values are parsed leniently. On update, blank
+  // cells keep the current value. Invalid rows are reported and skipped; the rest
+  // are saved. With dryRun, nothing is saved and the result is a preview.
+
+  /** Cell as trimmed text ('' for empty). */
+  const text = (v: unknown) => (v === null || v === undefined ? '' : String(v).trim())
+
+  /** Number from a cell: accepts "1,250.50", "1.250,50", "$3.75", "25 000". undefined if blank. */
+  function cellNum(v: unknown, field: string, opts: { min?: number; int?: boolean } = {}) {
+    if (typeof v === 'number') return num(v, field, opts)
+    let t = text(v).replace(/[^\d.,-]/g, '')
+    if (!t) {
+      if (text(v)) throw bad(`${field} must be a number`)
+      return undefined
+    }
+    const comma = t.lastIndexOf(',')
+    const dot = t.lastIndexOf('.')
+    if (comma > -1 && dot > -1)
+      t = comma > dot ? t.replace(/\./g, '').replace(',', '.') : t.replace(/,/g, '')
+    else if (comma > -1)
+      t = /^-?\d{1,3}(,\d{3})+$/.test(t) ? t.replace(/,/g, '') : t.replace(',', '.')
+    return num(t, field, opts)
+  }
+
+  /** Yes/no from a cell: yes, no, true, false, 1, 0, y, n, active, hidden. undefined if blank. */
+  function cellBool(v: unknown, field: string) {
+    if (typeof v === 'boolean') return v
+    const t = text(v).toLowerCase()
+    if (!t) return undefined
+    if (['yes', 'y', 'true', '1', 'active', 'on', 'show', 'visible', 'available'].includes(t))
+      return true
+    if (['no', 'n', 'false', '0', 'inactive', 'off', 'hide', 'hidden', 'unavailable'].includes(t))
+      return false
+    throw bad(`${field} must be yes or no`)
+  }
+
+  /** Copy only the fields that have a value. */
+  function defined<T extends object>(o: T): Partial<T> {
+    return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as Partial<T>
+  }
+
+  type RowOutcome = { action: 'create' | 'update' | 'skip'; label: string; message?: string }
+
+  function runImport(
+    body: Record<string, unknown>,
+    handleRow: (row: Record<string, unknown>) => RowOutcome,
+  ) {
+    const rows = arr(body.rows, 'rows')
+    if (!rows.length) throw bad('There are no rows to import')
+    if (rows.length > 5000) throw bad('Import at most 5,000 rows at a time')
+    const dryRun = body.dryRun === true
+    const snapshot = dryRun ? JSON.stringify(db.data) : null
+    const results = rows.map((raw, index) => {
+      const row = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+      const fallbackLabel = text(row.name) || text(row.code) || `Row ${index + 1}`
+      try {
+        const r = handleRow(row)
+        return { index, action: r.action, label: r.label, message: r.message ?? '' }
+      } catch (e) {
+        if (!(e instanceof HttpError)) throw e
+        return { index, action: 'error' as const, label: fallbackLabel, message: e.message }
+      }
+    })
+    if (snapshot) db.data = JSON.parse(snapshot) as DbData
+    const count = (a: string) => results.filter((r) => r.action === a).length
+    return {
+      dryRun,
+      created: count('create'),
+      updated: count('update'),
+      skipped: count('skip'),
+      failed: count('error'),
+      rows: results,
+    }
+  }
+
+  const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
+
+  route('POST', '/import/products', 'admin', ({ body }) =>
+    runImport(body, (row) => {
+      const name = text(row.name)
+      const sku = text(row.sku).toLowerCase()
+      const barcode = text(row.barcode)
+      const existing =
+        (sku && d().products.find((p) => p.sku.toLowerCase() === sku)) ||
+        (barcode && d().products.find((p) => p.barcode === barcode)) ||
+        (name && d().products.find((p) => p.name.toLowerCase() === name.toLowerCase())) ||
+        undefined
+      if (!existing) {
+        if (!name) throw bad('Name is required')
+        if (!text(row.category)) throw bad('Category is required')
+        if (!text(row.price)) throw bad('Price is required')
+      }
+
+      // Category by name (or id). A new name creates the category.
+      let message = ''
+      let createdCategory: Category | null = null
+      const catText = text(row.category)
+      let categoryId = existing?.categoryId ?? ''
+      if (catText) {
+        const cat = d().categories.find(
+          (c) => c.id === catText || c.name.toLowerCase() === catText.toLowerCase(),
+        )
+        if (cat) categoryId = cat.id
+        else {
+          createdCategory = {
+            id: uid('cat-'),
+            name: catText.slice(0, 40),
+            tint: TINTS[d().categories.length % TINTS.length]!,
+          }
+          d().categories.push(createdCategory)
+          categoryId = createdCategory.id
+          message = `New category: ${createdCategory.name}`
+        }
+      }
+
+      try {
+        const stock = cellNum(row.stock, 'Stock', { int: true })
+        const patch = defined({
+          name: name || undefined,
+          categoryId: categoryId || undefined,
+          price: cellNum(row.price, 'Price', { min: 0 }),
+          cost: cellNum(row.cost, 'Cost', { min: 0 }),
+          sku: text(row.sku) || undefined,
+          barcode: barcode || undefined,
+          emoji: text(row.emoji) || undefined,
+          lowStockAt: cellNum(row.lowStockAt, 'Low stock alert', { min: 0, int: true }),
+          active: cellBool(row.active, 'Active'),
+        })
+        if (existing) {
+          // Stock changes go through the movement log.
+          const next = productFrom(patch, existing)
+          const delta = stock !== undefined ? stock - (existing.stock ?? 0) : 0
+          if (stock !== undefined && existing.stock === null) next.stock = 0
+          else next.stock = existing.stock
+          const changed =
+            !same(next, existing) || delta !== 0 || (stock !== undefined && existing.stock === null)
+          if (!changed)
+            return { action: 'skip', label: existing.name, message: 'Already up to date' }
+          d().products[d().products.indexOf(existing)] = next
+          if (stock !== undefined && delta !== 0) logStock(next.id, delta, 'Import', 'Import')
+          return { action: 'update', label: next.name, message }
+        }
+        const blank: Product = {
+          id: uid('prd-'),
+          name: '',
+          categoryId: '',
+          price: 0,
+          cost: 0,
+          sku: `SKU-${String(d().products.length + 1).padStart(3, '0')}`,
+          barcode: '',
+          emoji: '🍽️',
+          stock: null,
+          lowStockAt: 5,
+          active: true,
+          options: [],
+        }
+        const p = productFrom({ ...patch, stock: stock ?? null }, blank)
+        d().products.push(p)
+        return { action: 'create', label: p.name, message }
+      } catch (e) {
+        if (createdCategory) d().categories = d().categories.filter((c) => c !== createdCategory)
+        throw e
+      }
+    }),
+  )
+
+  route('POST', '/import/customers', 'admin', ({ body }) =>
+    runImport(body, (row) => {
+      const phone = text(row.phone)
+      const email = text(row.email).toLowerCase()
+      const digits = phone.replace(/\D/g, '')
+      const existing =
+        (digits && d().customers.find((c) => c.phone.replace(/\D/g, '') === digits)) ||
+        (email && d().customers.find((c) => c.email.toLowerCase() === email)) ||
+        undefined
+      const fields = customerFields(
+        defined({
+          name: text(row.name) || undefined,
+          phone: phone || undefined,
+          email: text(row.email) || undefined,
+          note: text(row.note) || undefined,
+        }),
+        existing,
+      )
+      if (fields.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(fields.email))
+        throw bad('Email address is not valid')
+      const points = cellNum(row.points, 'Points', { min: 0, int: true })
+      if (existing) {
+        const next = { ...existing, ...fields, ...(points !== undefined ? { points } : {}) }
+        if (same(next, existing))
+          return { action: 'skip', label: existing.name, message: 'Already up to date' }
+        Object.assign(existing, next)
+        return { action: 'update', label: existing.name }
+      }
+      const c: Customer = {
+        id: uid('cus-'),
+        ...fields,
+        points: points ?? 0,
+        totalSpent: 0,
+        visits: 0,
+        createdAt: Date.now(),
+      }
+      d().customers.unshift(c)
+      return { action: 'create', label: c.name }
+    }),
+  )
+
+  function roleFrom(v: unknown): Role | undefined {
+    const t = text(v).toLowerCase()
+    if (!t) return undefined
+    if (['admin', 'manager', 'owner', 'supervisor'].includes(t)) return 'admin'
+    if (['cashier', 'staff', 'employee', 'waiter', 'server', 'barista'].includes(t))
+      return 'cashier'
+    throw bad('Role must be Manager or Cashier')
+  }
+
+  function pinFrom(v: unknown): string | undefined {
+    const pin = text(v)
+    if (!pin) return undefined
+    if (!/^\d{4,6}$/.test(pin))
+      throw bad(
+        typeof v === 'number' && pin.length < 4
+          ? 'PIN must be 4–6 digits. In Excel, format the PIN column as Text to keep leading zeros.'
+          : 'PIN must be 4–6 digits',
+        'INVALID_PIN_FORMAT',
+      )
+    return pin
+  }
+
+  route('POST', '/import/staff', 'admin', ({ body }) =>
+    runImport(body, (row) => {
+      const name = str(row.name === undefined ? undefined : text(row.name), 'Name', {
+        required: true,
+        max: 60,
+      })
+      const role = roleFrom(row.role)
+      const pin = pinFrom(row.pin)
+      const existing = d().staff.find((u) => u.name.toLowerCase() === name.toLowerCase())
+      if (pin) checkPin(pin, existing?.id)
+      if (existing) {
+        const nextRole = role ?? existing.role
+        if (existing.role === 'admin' && nextRole !== 'admin' && adminCount() <= 1)
+          throw conflict('LAST_MANAGER', 'At least one manager is required')
+        const next = { ...existing, role: nextRole, ...(pin ? { pin } : {}) }
+        if (same(next, existing))
+          return { action: 'skip', label: existing.name, message: 'Already up to date' }
+        Object.assign(existing, next)
+        return { action: 'update', label: existing.name, message: pin ? 'PIN changed' : '' }
+      }
+      if (!pin) throw bad('PIN is required for new staff')
+      d().staff.push({ id: uid('stf-'), name, role: role ?? 'cashier', pin })
+      return { action: 'create', label: name }
+    }),
+  )
+
+  route('POST', '/import/stock', 'admin', ({ body }) =>
+    runImport(body, (row) => {
+      const code = text(row.code).toLowerCase()
+      if (!code) throw bad('SKU or barcode is required')
+      const p = d().products.find(
+        (x) => x.sku.toLowerCase() === code || x.barcode.toLowerCase() === code,
+      )
+      if (!p) throw bad(`No product with SKU or barcode "${text(row.code)}"`, 'NOT_FOUND')
+      const qty = cellNum(row.quantity, 'Quantity', { int: true })
+      if (qty === undefined) throw bad('Quantity is required')
+      const reason = text(row.reason).slice(0, 80) || 'Stock count (import)'
+      if (p.stock === null) {
+        p.stock = 0
+        logStock(p.id, qty, reason, 'Import')
+        return { action: 'update', label: p.name, message: `Starts tracking stock: ${qty}` }
+      }
+      const delta = qty - p.stock
+      if (delta === 0) return { action: 'skip', label: p.name, message: `Already ${qty}` }
+      const before = p.stock
+      logStock(p.id, delta, reason, 'Import')
+      return { action: 'update', label: p.name, message: `${before} → ${qty}` }
+    }),
+  )
+
   // ----- Backup and admin --------------------------------------------------
 
   route('GET', '/backup', 'admin', (): BackupFile => ({

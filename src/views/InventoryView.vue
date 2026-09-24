@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { Search, TriangleAlert, PackagePlus } from 'lucide-vue-next'
+import { FileSpreadsheet, Search, TriangleAlert, PackagePlus } from 'lucide-vue-next'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import { useCatalogStore } from '@/stores/catalog'
 import { useSettingsStore } from '@/stores/settings'
@@ -81,7 +81,12 @@ const fmt = (t: number) =>
 
 <template>
   <div class="page space-y-4">
-    <h1 class="page-title">Stock</h1>
+    <div class="flex flex-wrap items-center gap-3">
+      <h1 class="page-title flex-1">Stock</h1>
+      <RouterLink :to="{ path: '/import', query: { type: 'stock' } }" class="btn btn-outline">
+        <FileSpreadsheet class="size-4" /> Import stock count
+      </RouterLink>
+    </div>
 
     <div class="grid grid-cols-2 gap-3 lg:grid-cols-3">
       <div class="card p-4">

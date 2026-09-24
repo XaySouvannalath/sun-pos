@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { Plus, Pencil, Trash2, Download, Upload, Crown } from 'lucide-vue-next'
+import { Plus, Pencil, Trash2, Download, Upload, Crown, FileSpreadsheet } from 'lucide-vue-next'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import { api } from '@/api'
 import { useSettingsStore } from '@/stores/settings'
@@ -328,6 +328,9 @@ const confirmText = {
         replaces the current data.
       </p>
       <div class="flex flex-wrap gap-2">
+        <RouterLink to="/import" class="btn btn-primary">
+          <FileSpreadsheet class="size-4" /> Import from Excel or CSV
+        </RouterLink>
         <button v-if="canDownload" class="btn btn-outline" @click="exportBackup">
           <Download class="size-4" /> Export backup
         </button>
