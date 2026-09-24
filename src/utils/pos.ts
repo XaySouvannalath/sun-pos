@@ -1,3 +1,4 @@
+import { canDownload } from './env'
 import type { Discount, OrderLine, Payment, SelectedOption, Totals } from '@/types'
 
 export function uid(): string {
@@ -78,6 +79,7 @@ export function startOfDay(ts: number): number {
 }
 
 export function downloadCsv(filename: string, rows: (string | number)[][]) {
+  if (!canDownload) return
   const csv = rows
     .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
     .join('\n')

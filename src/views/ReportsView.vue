@@ -5,6 +5,7 @@ import { useOrdersStore } from '@/stores/orders'
 import { useCatalogStore } from '@/stores/catalog'
 import { useSettingsStore } from '@/stores/settings'
 import { downloadCsv, lineTotal, startOfDay } from '@/utils/pos'
+import { canDownload } from '@/utils/env'
 import type { PaymentMethod } from '@/types'
 
 const orders = useOrdersStore()
@@ -221,7 +222,7 @@ function exportProducts() {
       <div class="card p-5">
         <div class="mb-3 flex items-center">
           <h2 class="flex-1 font-semibold">Best-selling products</h2>
-          <button class="btn btn-ghost btn-sm" @click="exportProducts">
+          <button v-if="canDownload" class="btn btn-ghost btn-sm" @click="exportProducts">
             <Download class="size-4" /> CSV
           </button>
         </div>

@@ -3,11 +3,14 @@ import { defineStore } from 'pinia'
 import { persisted } from '@/composables/persisted'
 import { defaultSettings } from '@/data/seed'
 import { roundTo } from '@/utils/pos'
+import { embedded } from '@/utils/env'
 import type { Settings } from '@/types'
 
 export const useSettingsStore = defineStore('settings', () => {
   // Merge with defaults so newly added settings get a value on old installs.
-  const stored = persisted<Settings>('settings', () => ({ ...defaultSettings }))
+  // The embedded preview follows the viewer's theme by default.
+  const initial = (): Settings => ({ ...defaultSettings, theme: embedded ? 'system' : 'light' })
+  const stored = persisted<Settings>('settings', initial)
   stored.value = { ...defaultSettings, ...stored.value }
   const s = stored
 
@@ -40,8 +43,13 @@ export const useSettingsStore = defineStore('settings', () => {
       ? window.matchMedia('(prefers-color-scheme: dark)')
       : null
 
+  // A host page may pin light/dark with data-theme on the root element.
+  const hostTheme =
+    typeof document !== 'undefined' ? document.documentElement.dataset.theme : undefined
+  const systemDark = hostTheme ? hostTheme === 'dark' : !!prefersDark?.matches
+
   const isDark = computed(
-    () => s.value.theme === 'dark' || (s.value.theme === 'system' && !!prefersDark?.matches),
+    () => s.value.theme === 'dark' || (s.value.theme === 'system' && systemDark),
   )
 
   watchEffect(() => {

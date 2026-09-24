@@ -42,6 +42,7 @@ npm run build        # type-check + production build
 npm run test:unit    # unit tests (Vitest)
 npm run lint         # oxlint + eslint
 npm run format       # prettier
+npm run build:preview  # single-file preview at dist-preview/sun-pos.html (no print/downloads)
 ```
 
 ## Project structure

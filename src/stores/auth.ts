@@ -8,7 +8,7 @@ import type { Role, Staff } from '@/types'
 export const useAuthStore = defineStore('auth', () => {
   const staff = persisted<Staff[]>('staff', () => clone(seedStaff))
   // Session storage: a page refresh keeps you signed in, a closed tab locks the till.
-  const currentId = persisted<string | null>('session-user', () => null, sessionStorage)
+  const currentId = persisted<string | null>('session-user', () => null, 'session')
 
   const user = computed(() => staff.value.find((u) => u.id === currentId.value) ?? null)
   const isAdmin = computed(() => user.value?.role === 'admin')

@@ -3,6 +3,7 @@ import { Printer, CircleCheck } from 'lucide-vue-next'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import OrderReceipt from '@/components/OrderReceipt.vue'
 import { useSettingsStore } from '@/stores/settings'
+import { canPrint } from '@/utils/env'
 import type { Order } from '@/types'
 
 const open = defineModel<boolean>({ required: true })
@@ -29,7 +30,9 @@ function print() {
       </div>
     </div>
     <template #footer>
-      <button class="btn btn-soft flex-1" @click="print"><Printer class="size-4" /> Print</button>
+      <button v-if="canPrint" class="btn btn-soft flex-1" @click="print">
+        <Printer class="size-4" /> Print
+      </button>
       <button class="btn btn-primary flex-1" @click="open = false">
         {{ justPaid ? 'New order' : 'Close' }}
       </button>

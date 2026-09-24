@@ -1,9 +1,11 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createMemoryHistory, createRouter, createWebHistory } from 'vue-router'
 import SellView from '@/views/SellView.vue'
 import { useAuthStore } from '@/stores/auth'
+import { embedded } from '@/utils/env'
 
 const router = createRouter({
-  history: createWebHistory(import.meta.env.BASE_URL),
+  // The embedded preview can't use the page URL, so it keeps routes in memory.
+  history: embedded ? createMemoryHistory() : createWebHistory(import.meta.env.BASE_URL),
   routes: [
     { path: '/', name: 'sell', component: SellView, meta: { title: 'Sell' } },
     {

@@ -9,6 +9,7 @@ import { useOrdersStore } from '@/stores/orders'
 import { useShiftStore } from '@/stores/shift'
 import { useToastStore } from '@/stores/toast'
 import { clearAllStorage, readStorage, writeStorage } from '@/composables/persisted'
+import { canDownload } from '@/utils/env'
 import type { Role, Staff } from '@/types'
 
 const settings = useSettingsStore()
@@ -81,6 +82,7 @@ const KEYS = [
 ]
 
 function exportBackup() {
+  if (!canDownload) return
   const data = Object.fromEntries(KEYS.map((k) => [k, readStorage(k)]))
   const blob = new Blob(
     [JSON.stringify({ app: 'sun-pos', version: 1, at: Date.now(), data }, null, 2)],
@@ -118,8 +120,7 @@ function runConfirm() {
     toast.show('Demo sales loaded', 'success')
   } else if (confirm.value === 'factory') {
     clearAllStorage()
-    sessionStorage.clear()
-    location.href = '/'
+    location.reload()
     return
   }
   confirm.value = null
@@ -300,7 +301,7 @@ const confirmText = {
         Data is stored in this browser. Export a backup regularly, or to move to another device.
       </p>
       <div class="flex flex-wrap gap-2">
-        <button class="btn btn-outline" @click="exportBackup">
+        <button v-if="canDownload" class="btn btn-outline" @click="exportBackup">
           <Download class="size-4" /> Export backup
         </button>
         <label class="btn btn-outline cursor-pointer"

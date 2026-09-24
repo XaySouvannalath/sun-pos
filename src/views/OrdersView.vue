@@ -9,6 +9,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useCustomersStore } from '@/stores/customers'
 import { useToastStore } from '@/stores/toast'
 import { downloadCsv, startOfDay } from '@/utils/pos'
+import { canDownload, canPrint } from '@/utils/env'
 import type { Order } from '@/types'
 
 const orders = useOrdersStore()
@@ -125,7 +126,7 @@ function exportCsv() {
   <div class="page space-y-4">
     <div class="flex flex-wrap items-center gap-3">
       <h1 class="page-title flex-1">Orders</h1>
-      <button class="btn btn-outline btn-sm" @click="exportCsv">
+      <button v-if="canDownload" class="btn btn-outline btn-sm" @click="exportCsv">
         <Download class="size-4" /> Export CSV
       </button>
     </div>
@@ -233,7 +234,7 @@ function exportCsv() {
         }}<template v-if="selected.refund.reason">: “{{ selected.refund.reason }}”</template>
       </p>
       <template #footer>
-        <button class="btn btn-soft flex-1" @click="print">
+        <button v-if="canPrint" class="btn btn-soft flex-1" @click="print">
           <Printer class="size-4" /> Reprint
         </button>
         <button
