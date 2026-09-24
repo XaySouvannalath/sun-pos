@@ -1,35 +1,196 @@
-@import './base.css';
+@import 'tailwindcss';
 
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Eye-friendly palette for long shifts: warm, low-glare "paper" neutrals,
+ * soft ink instead of pure black, and a muted sage-teal primary.
+ * The dark theme avoids pure black and keeps contrast comfortable.
+ */
+:root {
+  --c-bg: #edeae2;
+  --c-surface: #f7f5f0;
+  --c-surface-2: #e5e1d6;
+  --c-line: #d8d2c4;
+  --c-ink: #343a3c;
+  --c-ink-muted: #6c7370;
+  --c-primary: #3f7d6e;
+  --c-primary-ink: #f5f8f4;
+  --c-primary-soft: #d9e7df;
+  --c-accent: #a8782f;
+  --c-accent-soft: #f0e3c9;
+  --c-danger: #a9544b;
+  --c-danger-soft: #f2dcd7;
+  --c-success: #4b8651;
+  --c-success-soft: #dcebd9;
+  color-scheme: light;
+}
+
+.dark {
+  --c-bg: #1a1f22;
+  --c-surface: #222a2e;
+  --c-surface-2: #2b3338;
+  --c-line: #364045;
+  --c-ink: #d5dad4;
+  --c-ink-muted: #929b97;
+  --c-primary: #6dab99;
+  --c-primary-ink: #12201b;
+  --c-primary-soft: #283b35;
+  --c-accent: #d2a65f;
+  --c-accent-soft: #3b3326;
+  --c-danger: #d7867c;
+  --c-danger-soft: #432f2c;
+  --c-success: #88bb8b;
+  --c-success-soft: #27382a;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--c-bg);
+  --color-surface: var(--c-surface);
+  --color-surface-2: var(--c-surface-2);
+  --color-line: var(--c-line);
+  --color-ink: var(--c-ink);
+  --color-ink-muted: var(--c-ink-muted);
+  --color-primary: var(--c-primary);
+  --color-primary-ink: var(--c-primary-ink);
+  --color-primary-soft: var(--c-primary-soft);
+  --color-accent: var(--c-accent);
+  --color-accent-soft: var(--c-accent-soft);
+  --color-danger: var(--c-danger);
+  --color-danger-soft: var(--c-danger-soft);
+  --color-success: var(--c-success);
+  --color-success-soft: var(--c-success-soft);
+  --font-sans:
+    'Inter', 'Noto Sans', 'Noto Sans Lao', ui-sans-serif, system-ui, -apple-system, 'Segoe UI',
+    Roboto, sans-serif;
+}
+
+html,
+body,
 #app {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  font-weight: normal;
+  height: 100%;
 }
 
-a,
-.green {
-  text-decoration: none;
-  color: hsla(160, 100%, 37%, 1);
-  transition: 0.4s;
-  padding: 3px;
+body {
+  @apply bg-bg text-ink font-sans antialiased;
+  -webkit-tap-highlight-color: transparent;
 }
 
-@media (hover: hover) {
-  a:hover {
-    background-color: hsla(160, 100%, 37%, 0.2);
+@layer components {
+  .btn {
+    @apply inline-flex h-11 items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold whitespace-nowrap transition select-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45;
+  }
+  .btn-primary {
+    @apply bg-primary text-primary-ink hover:brightness-105;
+  }
+  .btn-soft {
+    @apply bg-surface-2 text-ink hover:bg-line;
+  }
+  .btn-outline {
+    @apply border border-line bg-surface text-ink hover:bg-surface-2;
+  }
+  .btn-ghost {
+    @apply text-ink-muted hover:bg-surface-2 hover:text-ink;
+  }
+  .btn-danger {
+    @apply bg-danger-soft text-danger hover:brightness-95;
+  }
+  .btn-sm {
+    @apply h-9 rounded-lg px-3 text-xs;
+  }
+  .btn-lg {
+    @apply h-14 rounded-2xl px-6 text-base;
+  }
+  .btn-icon {
+    @apply w-11 px-0;
+  }
+  .btn-sm.btn-icon {
+    @apply w-9;
+  }
+
+  .card {
+    @apply rounded-2xl border border-line bg-surface;
+  }
+
+  .input {
+    @apply h-11 w-full rounded-xl border border-line bg-surface px-3 text-sm text-ink transition placeholder:text-ink-muted/70 focus:border-primary focus:ring-2 focus:ring-primary/30 focus:outline-none;
+  }
+  textarea.input {
+    @apply h-auto py-2.5;
+  }
+
+  .label {
+    @apply mb-1.5 block text-xs font-medium text-ink-muted;
+  }
+
+  .chip {
+    @apply inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-line bg-surface px-4 text-sm font-medium text-ink-muted transition hover:text-ink;
+  }
+  .chip-active {
+    @apply border-primary bg-primary text-primary-ink hover:text-primary-ink;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold;
+  }
+
+  .segmented {
+    @apply flex rounded-xl bg-surface-2 p-1;
+  }
+  .segmented > button {
+    @apply flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg px-2 text-xs whitespace-nowrap font-semibold text-ink-muted transition;
+  }
+  .segmented > button[aria-pressed='true'] {
+    @apply bg-surface text-ink shadow-sm;
+  }
+
+  .table {
+    @apply w-full text-left text-sm;
+  }
+  .table th {
+    @apply border-b border-line px-4 py-3 text-xs font-semibold tracking-wide text-ink-muted uppercase;
+  }
+  .table td {
+    @apply border-b border-line/70 px-4 py-3;
+  }
+  .table tbody tr:last-child td {
+    @apply border-b-0;
+  }
+
+  .page {
+    @apply mx-auto w-full max-w-7xl p-4 md:p-6;
+  }
+  .page-title {
+    @apply text-2xl font-bold tracking-tight;
   }
 }
 
-@media (min-width: 1024px) {
-  body {
-    display: flex;
-    place-items: center;
-  }
+/* Soft, thin scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--c-line) transparent;
+}
 
-  #app {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    padding: 0 2rem;
+/* Printing: only the receipt is printed */
+@media print {
+  @page {
+    margin: 4mm;
+  }
+  body * {
+    visibility: hidden !important;
+  }
+  .print-area,
+  .print-area * {
+    visibility: visible !important;
+    color: #000 !important;
+  }
+  .print-area {
+    position: fixed !important;
+    inset: 0 auto auto 0 !important;
+    width: 72mm !important;
+    background: #fff !important;
+    box-shadow: none !important;
+    border: 0 !important;
   }
 }
