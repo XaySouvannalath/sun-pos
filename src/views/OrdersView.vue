@@ -7,9 +7,9 @@ import OrderReceipt from '@/components/OrderReceipt.vue'
 import { api } from '@/api'
 import { useOrdersStore } from '@/stores/orders'
 import { useSettingsStore } from '@/stores/settings'
-import { useAuthStore } from '@/stores/auth'
 import { useCustomersStore } from '@/stores/customers'
 import { useToastStore } from '@/stores/toast'
+import { useApprovalStore } from '@/stores/approval'
 import { startOfDay } from '@/utils/pos'
 import { downloadCsv } from '@/utils/download'
 import { canDownload, canPrint } from '@/utils/env'
@@ -19,7 +19,6 @@ const PAGE = 50
 
 const orders = useOrdersStore()
 const settings = useSettingsStore()
-const auth = useAuthStore()
 const customers = useCustomersStore()
 const toast = useToastStore()
 
@@ -88,11 +87,35 @@ const detailOpen = computed({
   },
 })
 
-const print = () => window.print()
+const approval = useApprovalStore()
+
+/** Reprints are logged; they can also need a manager (Settings → Staff controls). */
+async function print() {
+  const o = selected.value
+  if (!o) return
+  let approvalId: string | null = ''
+  if (settings.s.controls.approveReprint) {
+    approvalId = await approval.ask('reprint', { detail: t('receipt.order', { n: o.number }) })
+    if (approvalId === null) return
+  }
+  await api.orders.reprint(o.id, approvalId || null)
+  window.print()
+}
 
 async function doRefund() {
-  if (!selected.value) return
-  const updated = await orders.refund(selected.value.id, refundReason.value.trim(), restock.value)
+  const o = selected.value
+  if (!o) return
+  // A cashier refunds with a manager's PIN; a manager just confirms.
+  const approvalId = await approval.ask('refund', {
+    detail: `${t('receipt.order', { n: o.number })} · ${settings.money(o.total)}`,
+  })
+  if (approvalId === null) return
+  const updated = await orders.refund(
+    o.id,
+    refundReason.value.trim(),
+    restock.value,
+    approvalId || null,
+  )
   toast.show(t('orders.refunded', { n: updated.number }), 'success')
   selected.value = updated
   const i = filtered.value.findIndex((o) => o.id === updated.id)
@@ -281,7 +304,7 @@ async function exportCsv() {
           <Printer class="size-4" /> {{ t('orders.reprint') }}
         </button>
         <button
-          v-if="selected?.status === 'completed' && auth.isAdmin"
+          v-if="selected?.status === 'completed'"
           class="btn btn-danger flex-1"
           @click="refundOpen = true"
         >

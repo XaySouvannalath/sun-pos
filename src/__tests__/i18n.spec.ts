@@ -5,6 +5,8 @@ import lo from '@/i18n/locales/lo'
 import zh from '@/i18n/locales/zh'
 import vi from '@/i18n/locales/vi'
 import { autoMap, getSpec, parseText } from '@/utils/importer'
+import { summaryText } from '@/utils/summaryText'
+import type { DailySummary } from '@/types'
 
 type Tree = { [k: string]: string | Tree }
 function flatten(tree: Tree, prefix = ''): Record<string, string> {
@@ -75,5 +77,41 @@ describe('import column matching in other languages', () => {
       price: 2,
       barcode: 3,
     })
+  })
+})
+
+describe('daily summary message', () => {
+  const summary: DailySummary = {
+    date: '2026-09-25',
+    sales: 1250,
+    orders: 50,
+    avg: 25,
+    items: 120,
+    lastWeek: { sales: 1000, orders: 40 },
+    payments: [{ method: 'cash', amount: 800 }],
+    top: [{ name: 'Café Latte', qty: 30, revenue: 112.5 }],
+    shifts: [
+      { staffName: 'Noy', openedAt: 0, closedAt: 1, expected: 500, counted: 490, diff: -10 },
+    ],
+    discounts: 12,
+    voids: { count: 1, value: 3 },
+    refunds: { count: 0, value: 0 },
+    cashOut: 0,
+    alerts: [{ level: 'warn', code: 'cashShort', staffName: 'Noy', amount: 10, count: 1, pct: 0 }],
+  }
+  const money = (n: number) => `$${n.toFixed(2)}`
+
+  it('writes the day, the change from last week and what to check', () => {
+    const text = summaryText(summary, { lang: 'en', storeName: 'Sun Café', money })
+    expect(text).toContain('Sun Café · Daily summary')
+    expect(text).toContain('Sales: $1250.00 (+25% vs last week)')
+    expect(text).toContain('1. Café Latte × 30')
+    expect(text).toContain('Noy closed a shift $10.00 short.')
+  })
+
+  it('can be written in another language than the till', () => {
+    const text = summaryText(summary, { lang: 'lo', storeName: 'Sun Café', money })
+    expect(text).toContain('ຍອດຂາຍ')
+    expect(text).toContain('Noy ປິດກະ ເງິນຂາດ $10.00.')
   })
 })

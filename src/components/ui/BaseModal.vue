@@ -5,7 +5,13 @@ import { X } from 'lucide-vue-next'
 
 const open = defineModel<boolean>({ required: true })
 const props = withDefaults(
-  defineProps<{ title?: string; size?: 'sm' | 'md' | 'lg' | 'xl'; dismissible?: boolean }>(),
+  defineProps<{
+    title?: string
+    size?: 'sm' | 'md' | 'lg' | 'xl'
+    dismissible?: boolean
+    /** Show above every other dialog (e.g. a manager's PIN asked for from inside a dialog). */
+    top?: boolean
+  }>(),
   { size: 'md', dismissible: true },
 )
 
@@ -36,7 +42,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
     >
       <div
         v-if="open"
-        class="fixed inset-0 z-50 flex items-end justify-center bg-black/35 p-0 backdrop-blur-[2px] sm:items-center sm:p-4"
+        class="fixed inset-0 flex items-end justify-center bg-black/35 p-0 backdrop-blur-[2px] sm:items-center sm:p-4"
+        :class="top ? 'z-[70]' : 'z-50'"
         @mousedown.self="dismissible && (open = false)"
       >
         <div

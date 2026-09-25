@@ -4,6 +4,11 @@
 // both call it. A real backend should behave the same way.
 // Only relative imports here: this module also runs inside the Vite config (Node).
 import type {
+  Approval,
+  ApprovalAction,
+  AuditEntry,
+  AuditType,
+  OutboxEntry,
   BackupFile,
   BreakdownBy,
   Category,
@@ -37,10 +42,19 @@ import type {
   StockMove,
   Tint,
 } from '../types.ts'
-import { computeTotals, lineKey, mergeDiscounts, mergeLines, roundTo } from '../utils/pos.ts'
+import {
+  computeTotals,
+  discountPercent,
+  lineKey,
+  mergeDiscounts,
+  mergeLines,
+  roundTo,
+} from '../utils/pos.ts'
 import { effectiveRates, isDateKey, localDate } from '../utils/rates.ts'
 import type { Db } from './db.ts'
 import {
+  dailySummary,
+  riskReport,
   breakdown,
   inRange,
   productSales,
@@ -100,6 +114,12 @@ const SHAPES: TableShape[] = ['square', 'round', 'rect']
 const TICKET_STATUSES: TicketStatus[] = ['new', 'preparing', 'ready', 'done']
 /** Size of the floor plan, in plan units. */
 export const PLAN = { w: 1000, h: 640 } as const
+const APPROVAL_ACTIONS: ApprovalAction[] = ['discount', 'void', 'refund', 'cashOut', 'reprint']
+const LANGS = ['en', 'lo', 'zh', 'vi'] as const
+/** Manager approvals are good for this long, and each can be used once. */
+const APPROVAL_TTL = 30 * 60000
+/** Wrong manager PINs allowed per till user before a short lock. */
+const PIN_TRIES = 5
 
 const uid = (prefix = '') =>
   prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
@@ -180,11 +200,121 @@ export function createApi(db: Db) {
   const findProduct = (id: string) => d().products.find((p) => p.id === id)
   const findCustomer = (id: string) => d().customers.find((c) => c.id === id)
   const currentShift = () => d().shifts.find((s) => s.closedAt === null) ?? null
-  const withSummary = (shift: Shift) => ({
-    shift,
-    summary: shiftSummary(shift, d().orders, d().settings.decimals),
-  })
+  const withSummary = (shift: Shift, user?: Staff | null) => {
+    const summary = shiftSummary(shift, d().orders, d().settings.decimals)
+    // Blind count: cashiers don't see what the drawer should hold.
+    if (user && !isManager(user) && d().settings.controls.blindCount)
+      return {
+        shift: { ...shift, expectedCash: null },
+        summary: {
+          ...summary,
+          cashSales: 0,
+          cashRefunds: 0,
+          expectedCash: 0,
+          byMethod: { ...summary.byMethod, cash: 0 },
+          blind: true,
+        },
+      }
+    return { shift, summary }
+  }
   const productMap = () => new Map(d().products.map((p) => [p.id, p]))
+
+  // ----- Manager approvals and the activity log ---------------------------
+
+  const approvals = new Map<string, Approval & { used: boolean }>()
+  const pinFailures = new Map<string, number[]>() // staff id -> times of wrong manager PINs
+  const isManager = (u: Staff) => u.role === 'admin'
+
+  function audit(
+    type: AuditType,
+    user: Staff,
+    e: Partial<Omit<AuditEntry, 'id' | 'at' | 'type' | 'staffId' | 'staffName'>> = {},
+  ) {
+    const entry: AuditEntry = {
+      id: uid('aud-'),
+      at: Date.now(),
+      type,
+      staffId: user.id,
+      staffName: user.name,
+      approvedBy: null,
+      amount: 0,
+      orderNumber: null,
+      table: '',
+      detail: '',
+      ...e,
+    }
+    entry.amount = round(entry.amount)
+    d().audit.unshift(entry)
+    if (d().audit.length > 20000) d().audit.length = 20000
+    return entry
+  }
+
+  /**
+   * Checks a manager's approval for a cashier's action and uses it up. Managers approve their own
+   * actions. Returns the approving manager's name, or throws 403 APPROVAL_REQUIRED.
+   */
+  function approve(user: Staff, action: ApprovalAction, id: unknown, amount = 0): string | null {
+    if (isManager(user)) return null
+    const a = typeof id === 'string' ? approvals.get(id) : undefined
+    if (
+      !a ||
+      a.used ||
+      a.action !== action ||
+      Date.now() - a.at > APPROVAL_TTL ||
+      a.amount + 0.01 < amount
+    )
+      throw new HttpError(403, 'APPROVAL_REQUIRED', 'A manager needs to approve this')
+    a.used = true
+    return a.managerName
+  }
+
+  route('POST', '/approvals', 'staff', ({ body, user }) => {
+    const action = oneOf(body.action, 'action', APPROVAL_ACTIONS)
+    const now = Date.now()
+    const recent = (pinFailures.get(user!.id) ?? []).filter((t) => now - t < 5 * 60000)
+    if (recent.length >= PIN_TRIES)
+      throw new HttpError(429, 'TOO_MANY_ATTEMPTS', 'Too many wrong PINs. Wait a few minutes')
+    const manager = d().staff.find((s) => s.role === 'admin' && s.pin === String(body.pin ?? ''))
+    if (!manager) {
+      pinFailures.set(user!.id, [...recent, now])
+      audit('approvalFailed', user!, { detail: action })
+      // Not thrown, so the failed attempt stays in the log.
+      return {
+        __status: 403,
+        value: { error: { code: 'WRONG_PIN', message: 'That is not a manager PIN' } },
+      }
+    }
+    const a: Approval = {
+      id: uid('apr-'),
+      action,
+      managerName: manager.name,
+      amount: num(body.amount, 'amount', { min: 0, fallback: 0 }),
+      at: now,
+    }
+    approvals.set(a.id, { ...a, used: false })
+    return { __status: 201, value: a }
+  })
+
+  /** Logs cancelled items (and checks their approvals). */
+  function voidItems(
+    items: TicketLineInput[],
+    user: Staff,
+    head: { table: string; orderNumber?: number | null },
+  ) {
+    const needs = d().settings.controls.approveVoids
+    for (const v of items) {
+      if (!v.cancelled || !(v.qty > 0)) continue
+      const approvedBy = needs ? approve(user, 'void', v.approvalId) : null
+      const p = findProduct(v.productId)
+      audit('void', user, {
+        approvedBy,
+        amount: (p?.price ?? 0) * v.qty,
+        table: head.table,
+        orderNumber: head.orderNumber ?? null,
+        detail: `${v.qty} × ${p?.name ?? v.productId}`,
+      })
+    }
+  }
 
   function logStock(
     productId: string,
@@ -304,6 +434,53 @@ export function createApi(db: Db) {
       if (typeof body.receiptShowRates !== 'boolean')
         throw bad('receiptShowRates must be true or false')
       next.receiptShowRates = body.receiptShowRates
+    }
+    if (body.controls !== undefined) {
+      const c = obj(body.controls, 'controls')
+      const bool = (k: string, fallback: boolean) => {
+        if (c[k] === undefined) return fallback
+        if (typeof c[k] !== 'boolean') throw bad(`controls.${k} must be true or false`)
+        return c[k] as boolean
+      }
+      const cur = s.controls
+      next.controls = {
+        discountLimitPct: num(c.discountLimitPct, 'controls.discountLimitPct', {
+          min: 0,
+          max: 100,
+          fallback: cur.discountLimitPct,
+        }),
+        approveVoids: bool('approveVoids', cur.approveVoids),
+        approveCashOut: bool('approveCashOut', cur.approveCashOut),
+        approveReprint: bool('approveReprint', cur.approveReprint),
+        blindCount: bool('blindCount', cur.blindCount),
+        cashTolerance: num(c.cashTolerance, 'controls.cashTolerance', {
+          min: 0,
+          fallback: cur.cashTolerance,
+        }),
+      }
+    }
+    if (body.dailySummary !== undefined) {
+      const c = obj(body.dailySummary, 'dailySummary')
+      const cur = s.dailySummary
+      const time = c.time === undefined ? cur.time : str(c.time, 'dailySummary.time')
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) throw bad('dailySummary.time must be HH:MM')
+      next.dailySummary = {
+        enabled: c.enabled === undefined ? cur.enabled : c.enabled === true,
+        sendAt:
+          c.sendAt === undefined
+            ? cur.sendAt
+            : oneOf(c.sendAt, 'dailySummary.sendAt', ['shiftClose', 'time'] as const),
+        time,
+        language:
+          c.language === undefined
+            ? cur.language
+            : oneOf(c.language, 'dailySummary.language', LANGS),
+        telegram:
+          c.telegram === undefined ? cur.telegram : str(c.telegram, 'telegram', { max: 300 }),
+        whatsapp:
+          c.whatsapp === undefined ? cur.whatsapp : str(c.whatsapp, 'whatsapp', { max: 300 }),
+        email: c.email === undefined ? cur.email : str(c.email, 'email', { max: 300 }),
+      }
     }
     d().settings = next
     return next
@@ -489,6 +666,7 @@ export function createApi(db: Db) {
         options: arr(l.options ?? [], `${field}[${i}].options`).map((o) => String(o)),
         note: str(l.note, `${field}[${i}].note`, { max: 200 }),
         cancelled: l.cancelled === true,
+        approvalId: typeof l.approvalId === 'string' ? l.approvalId : null,
       }
     })
   }
@@ -505,7 +683,10 @@ export function createApi(db: Db) {
   }
 
   route('POST', '/tickets', 'staff', ({ body, user }) => {
-    const made = makeTickets(orderHead(body), ticketLines(body.lines, 'lines'), user!.name)
+    const head = orderHead(body)
+    const lines = ticketLines(body.lines, 'lines')
+    voidItems(lines, user!, head)
+    const made = makeTickets(head, lines, user!.name)
     return { __status: 201, value: made }
   })
 
@@ -785,6 +966,14 @@ export function createApi(db: Db) {
     if (customerId && !customer) throw bad('customerId does not exist')
 
     const totals = computeTotals(lines, orderDiscount, d().settings)
+    // Discounts above the cashier's limit need a manager.
+    const gross = lines.reduce((sum, l) => sum + l.unitPrice * l.qty, 0)
+    const discountValue = gross - totals.subtotal + totals.discount
+    const discountPct = discountPercent(lines, orderDiscount, d().settings)
+    const discountBy =
+      discountPct > d().settings.controls.discountLimitPct + 0.01
+        ? approve(user!, 'discount', body.discountApprovalId, discountPct)
+        : null
     const splitWays =
       body.splitWays === undefined || body.splitWays === null
         ? undefined
@@ -845,6 +1034,8 @@ export function createApi(db: Db) {
     d().orders.unshift(order)
     for (const l of lines) logStock(l.productId, -l.qty, `Sale #${order.number}`, user!.name)
     // The kitchen gets whatever wasn't sent before, and any cancellations still to report.
+    const voids = ticketLines(body.voids, 'voids').map((v) => ({ ...v, cancelled: true }))
+    voidItems(voids, user!, { table: order.table, orderNumber: order.number })
     const unsent = arr(body.lines, 'lines').map((raw, i) => {
       const sent = num(obj(raw, 'line').sentQty, `lines[${i}].sentQty`, { min: 0, fallback: 0 })
       const l = lines[i]!
@@ -863,9 +1054,17 @@ export function createApi(db: Db) {
         tableId,
         note: order.note,
       },
-      [...unsent, ...ticketLines(body.voids, 'voids').map((v) => ({ ...v, cancelled: true }))],
+      [...unsent, ...voids],
       user!.name,
     )
+    if (discountValue > 0.000001)
+      audit('discount', user!, {
+        approvedBy: discountBy,
+        amount: discountValue,
+        orderNumber: order.number,
+        table: order.table,
+        detail: `${Math.round(discountPct * 10) / 10}%`,
+      })
     // Paying a table's bill closes it.
     if (body.heldId) d().held = d().held.filter((x) => x.id !== body.heldId)
     if (customer) {
@@ -913,11 +1112,30 @@ export function createApi(db: Db) {
     return o
   })
 
-  route('POST', '/orders/:id/refund', 'admin', ({ params, body, user }) => {
+  route('POST', '/orders/:id/reprint', 'staff', ({ params, body, user }) => {
+    const o = d().orders.find((x) => x.id === params.id)
+    if (!o) throw notFound('Order')
+    const approvedBy = d().settings.controls.approveReprint
+      ? approve(user!, 'reprint', body.approvalId)
+      : null
+    audit('reprint', user!, { approvedBy, amount: o.total, orderNumber: o.number, table: o.table })
+    return o
+  })
+
+  // Managers refund; a cashier can too, with a manager's approval.
+  route('POST', '/orders/:id/refund', 'staff', ({ params, body, user }) => {
     const o = d().orders.find((x) => x.id === params.id)
     if (!o) throw notFound('Order')
     if (o.status !== 'completed')
       throw conflict('ALREADY_REFUNDED', 'This order is already refunded')
+    const approvedBy = approve(user!, 'refund', body.approvalId)
+    audit('refund', user!, {
+      approvedBy,
+      amount: o.total,
+      orderNumber: o.number,
+      table: o.table,
+      detail: str(body.reason, 'reason', { max: 200 }),
+    })
     o.status = 'refunded'
     o.refund = {
       at: Date.now(),
@@ -1027,6 +1245,9 @@ export function createApi(db: Db) {
     if (!ids.length || ids.includes(h.id)) throw bad('ids must list other held orders')
     const others = ids.map(findHeld)
     for (const o of others) {
+      // Bills without a floor-plan table join their table names ("5 + 6").
+      if (!h.tableId && o.table && !h.table.split(' + ').includes(o.table))
+        h.table = [h.table, o.table].filter(Boolean).join(' + ').slice(0, 20)
       retargetTickets(o.tableId, { tableId: h.tableId, table: h.table })
       h.lines = mergeLines(h.lines, o.lines, () => uid())
       h.voids = [...h.voids, ...o.voids]
@@ -1040,10 +1261,39 @@ export function createApi(db: Db) {
     return h
   })
 
-  route('DELETE', '/held-orders/:id', 'staff', ({ params }) => {
+  route('DELETE', '/held-orders/:id', 'staff', ({ params, query, user }) => {
     const h = findHeld(params.id!)
+    logDeleted(user!, {
+      total: computeTotals(h.lines, h.discount, d().settings).total,
+      items: h.lines.map((l) => `${l.qty} × ${l.name}`).join(', '),
+      table: h.table,
+      sent: h.lines.some((l) => (l.sentQty ?? 0) > 0) || h.voids.length > 0,
+      approvalId: query.approvalId,
+    })
     d().held = d().held.filter((x) => x.id !== params.id)
     return h
+  })
+
+  /** Throwing away an order: logged, and it needs a manager if the kitchen already has it. */
+  function logDeleted(
+    user: Staff,
+    o: { total: number; items: string; table: string; sent: boolean; approvalId: unknown },
+  ) {
+    const approvedBy =
+      o.sent && d().settings.controls.approveVoids ? approve(user, 'void', o.approvalId) : null
+    audit('orderDeleted', user, { approvedBy, amount: o.total, table: o.table, detail: o.items })
+  }
+
+  // An order cleared from the screen before it was saved or paid.
+  route('POST', '/activity/cleared-order', 'staff', ({ body, user }) => {
+    logDeleted(user!, {
+      total: num(body.total, 'total', { min: 0 }),
+      items: str(body.items, 'items', { max: 500 }),
+      table: str(body.table, 'table', { max: 20 }),
+      sent: body.sent === true,
+      approvalId: body.approvalId,
+    })
+    return null
   })
 
   // ----- Customers ---------------------------------------------------------
@@ -1111,9 +1361,9 @@ export function createApi(db: Db) {
 
   // ----- Shifts ------------------------------------------------------------
 
-  route('GET', '/shifts/current', 'staff', () => {
+  route('GET', '/shifts/current', 'staff', ({ user }) => {
     const s = currentShift()
-    return s ? withSummary(s) : null
+    return s ? withSummary(s, user) : null
   })
 
   route('POST', '/shifts', 'staff', ({ body, user }) => {
@@ -1131,20 +1381,22 @@ export function createApi(db: Db) {
       note: '',
     }
     d().shifts.unshift(s)
-    return { __status: 201, value: withSummary(s) }
+    return { __status: 201, value: withSummary(s, user) }
   })
 
   route('POST', '/shifts/current/cash-moves', 'staff', ({ body, user }) => {
     const s = currentShift()
     if (!s) throw conflict('NO_OPEN_SHIFT', 'No shift is open')
-    s.cashMoves.push({
-      at: Date.now(),
-      type: oneOf(body.type, 'type', ['in', 'out'] as const),
-      amount: round(num(body.amount, 'amount', { min: 0.000001 })),
-      reason: str(body.reason, 'reason', { max: 120 }),
-      by: user!.name,
-    })
-    return withSummary(s)
+    const type = oneOf(body.type, 'type', ['in', 'out'] as const)
+    const amount = round(num(body.amount, 'amount', { min: 0.000001 }))
+    const reason = str(body.reason, 'reason', { max: 120 })
+    const approvedBy =
+      type === 'out' && d().settings.controls.approveCashOut
+        ? approve(user!, 'cashOut', body.approvalId)
+        : null
+    s.cashMoves.push({ at: Date.now(), type, amount, reason, by: user!.name })
+    audit(type === 'out' ? 'cashOut' : 'cashIn', user!, { approvedBy, amount, detail: reason })
+    return withSummary(s, user)
   })
 
   route('POST', '/shifts/current/close', 'staff', ({ body, user }) => {
@@ -1156,15 +1408,18 @@ export function createApi(db: Db) {
     s.note = str(body.note, 'note', { max: 300 })
     s.closedBy = user!.name
     s.closedAt = Date.now()
-    return { shift: s, summary }
+    audit('shiftClosed', user!, { amount: s.countedCash - s.expectedCash, detail: s.note })
+    const ds = d().settings.dailySummary
+    if (ds.enabled && ds.sendAt === 'shiftClose') queueSummary(localDate(s.closedAt), 'shiftClose')
+    return withSummary(s, user)
   })
 
-  route('GET', '/shifts', 'staff', ({ query }) => {
+  route('GET', '/shifts', 'staff', ({ query, user }) => {
     const limit = num(query.limit, 'limit', { min: 1, max: 200, int: true, fallback: 30 })
     return d()
       .shifts.filter((s) => s.closedAt !== null)
       .slice(0, limit)
-      .map(withSummary)
+      .map((s) => withSummary(s, user))
   })
 
   // ----- Reports -----------------------------------------------------------
@@ -1173,6 +1428,78 @@ export function createApi(db: Db) {
     const { from, to } = range(query)
     return { from, to, orders: inRange(d().orders, from, to) }
   }
+
+  route('GET', '/reports/risk', 'admin', ({ query }) => {
+    const { from, to } = range(query)
+    const s = d().settings
+    return riskReport(d().orders, d().audit, from, to, s.controls, s.decimals)
+  })
+
+  route('GET', '/audit', 'admin', ({ query }) => {
+    const { from, to } = range(query)
+    const limit = num(query.limit, 'limit', { min: 1, max: 500, int: true, fallback: 100 })
+    const offset = num(query.offset, 'offset', { min: 0, int: true, fallback: 0 })
+    const items = d().audit.filter(
+      (e) =>
+        e.at >= from &&
+        e.at < to &&
+        (!query.type || e.type === query.type) &&
+        (!query.staff || e.staffName === query.staff),
+    )
+    return { items: items.slice(offset, offset + limit), total: items.length }
+  })
+
+  const summaryOf = (date: string) => {
+    const s = d().settings
+    return dailySummary(date, d().orders, d().shifts, d().audit, s.controls, s.decimals)
+  }
+
+  route('GET', '/reports/daily-summary', 'admin', ({ query }) =>
+    summaryOf(dateParam(query.date, 'date')),
+  )
+
+  /** Queues the day's summary for the backend to send to the owner. */
+  function queueSummary(date: string, trigger: OutboxEntry['trigger']): OutboxEntry {
+    const ds = d().settings.dailySummary
+    const channels = (['telegram', 'whatsapp', 'email'] as const).filter((c) => ds[c].trim())
+    const entry: OutboxEntry = {
+      id: uid('out-'),
+      at: Date.now(),
+      date,
+      trigger,
+      channels: [...channels],
+      status: 'queued',
+      summary: summaryOf(date),
+    }
+    d().outbox.unshift(entry)
+    if (d().outbox.length > 200) d().outbox.length = 200
+    return entry
+  }
+
+  route('GET', '/summary/outbox', 'admin', () => {
+    // A scheduled summary is queued the first time anyone looks after its time (the mock has no
+    // clock of its own; a real backend runs a scheduled job instead).
+    const ds = d().settings.dailySummary
+    const today = localDate()
+    const [hh, mm] = ds.time.split(':').map(Number)
+    const due = new Date()
+    due.setHours(hh!, mm!, 0, 0)
+    if (
+      ds.enabled &&
+      ds.sendAt === 'time' &&
+      Date.now() >= due.getTime() &&
+      !d().outbox.some((o) => o.date === today && o.trigger === 'time')
+    ) {
+      queueSummary(today, 'time')
+      db.save()
+    }
+    return d().outbox.slice(0, 50)
+  })
+
+  route('POST', '/summary/send', 'admin', ({ body }) => ({
+    __status: 201,
+    value: queueSummary(dateParam(body.date as string | undefined, 'date'), 'manual'),
+  }))
 
   route('GET', '/reports/summary', 'admin', ({ query }) =>
     reportSummary(reportOrders(query).orders, productMap(), d().settings.decimals),
@@ -1507,6 +1834,8 @@ export function createApi(db: Db) {
       'exchangeRates',
       'stations',
       'tickets',
+      'audit',
+      'outbox',
     ] as const
     const next = { ...d() } as DbData
     for (const k of keys) if (data[k] !== undefined) (next[k] as unknown[]) = arr(data[k], k)

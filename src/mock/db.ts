@@ -92,6 +92,8 @@ export function seedData(now = Date.now()): DbData {
     floor: clone(floor) as DbData['floor'],
     stations: clone(stations) as DbData['stations'],
     tickets: [],
+    audit: [],
+    outbox: [],
   }
 }
 
@@ -100,7 +102,11 @@ export function createDb(adapter: DbAdapter): Db {
   // Fill in any collections missing from an older save.
   const data: DbData = loaded ? { ...seedData(), ...loaded } : seedData()
   if (loaded) {
-    data.settings = { ...seedData().settings, ...loaded.settings }
+    const seed = seedData().settings
+    data.settings = { ...seed, ...loaded.settings }
+    // Settings groups added later: fill in any missing fields.
+    data.settings.controls = { ...seed.controls, ...loaded.settings.controls }
+    data.settings.dailySummary = { ...seed.dailySummary, ...loaded.settings.dailySummary }
     // Older saves: categories without a station, held orders without a table.
     const seedStations = new Map(seedData().categories.map((c) => [c.id, c.stationId]))
     for (const c of data.categories) c.stationId ??= seedStations.get(c.id) ?? null
@@ -122,6 +128,8 @@ export function createDb(adapter: DbAdapter): Db {
         db.data.stockMoves = []
         db.data.held = []
         db.data.tickets = []
+        db.data.audit = []
+        db.data.outbox = []
       }
       db.save()
     },

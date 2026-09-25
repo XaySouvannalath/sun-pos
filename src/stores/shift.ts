@@ -17,8 +17,13 @@ export const useShiftStore = defineStore('shift', () => {
     open_.value = await api.shifts.open(openingFloat)
   }
 
-  async function moveCash(type: 'in' | 'out', amount: number, reason: string) {
-    open_.value = await api.shifts.moveCash({ type, amount, reason })
+  async function moveCash(
+    type: 'in' | 'out',
+    amount: number,
+    reason: string,
+    approvalId?: string | null,
+  ) {
+    open_.value = await api.shifts.moveCash({ type, amount, reason, approvalId })
   }
 
   async function close(countedCash: number, note: string) {

@@ -127,7 +127,10 @@ describe('stores over the API', () => {
     await cart.hold('Table 6')
 
     await cart.mergeHeld(cart.held.map((h) => h.id))
-    expect(cart.held).toHaveLength(0)
+    // One combined bill, saved on the server and open on screen.
+    expect(cart.held).toHaveLength(1)
+    expect(cart.state.heldId).toBe(cart.held[0]!.id)
+    expect(cart.waiting).toHaveLength(0)
     expect(cart.state.lines).toHaveLength(1)
     expect(cart.state.lines[0]!.qty).toBe(3)
     expect(cart.state.table).toMatch(/^[56] \+ [56]$/)
@@ -163,7 +166,7 @@ describe('stores over the API', () => {
     await cart.openTable(table)
     expect(cart.hasUnsent).toBe(false)
     const rice = cart.state.lines.findIndex((l) => l.name === 'Chicken Fried Rice')
-    cart.setQty(rice, 1)
+    await cart.setQty(rice, 1)
     expect(cart.hasUnsent).toBe(true)
 
     await useShiftStore().open(0)
@@ -197,5 +200,34 @@ describe('stores over the API', () => {
     const kitchen = useKitchenStore()
     await kitchen.load()
     expect(kitchen.active[0]).toMatchObject({ tableId: to!.id, table: to!.name })
+  })
+
+  it('asks a manager when a cashier removes a sent item, then reports it to the kitchen', async () => {
+    const { useAuthStore } = await import('@/stores/auth')
+    const { useAppStore } = await import('@/stores/app')
+    const auth = useAuthStore()
+    await auth.init()
+    expect(await auth.login('0000')).toBe(true)
+    await useAppStore().load()
+    const { useCartStore } = await import('@/stores/cart')
+    const { useCatalogStore } = await import('@/stores/catalog')
+    const { useApprovalStore } = await import('@/stores/approval')
+    const cart = useCartStore()
+    const approval = useApprovalStore()
+    const rice = useCatalogStore().products.find((p) => p.name === 'Chicken Fried Rice')!
+
+    cart.add(rice, [], 2)
+    await cart.send() // no table: stays on screen, marked as sent
+    const removing = cart.setQty(0, 1)
+    await vi.waitFor(() => expect(approval.pending?.action).toBe('void'))
+    await approval.submit('9999')
+    expect(approval.error).not.toBe('')
+    await approval.submit('1234')
+    expect(await removing).toBe(true)
+    expect(cart.state.voids![0]).toMatchObject({ qty: 1 })
+    expect(cart.state.voids![0]!.approvalId).toBeTruthy()
+
+    const { tickets } = await cart.send()
+    expect(tickets[0]!.items).toMatchObject([{ qty: 1, cancelled: true }])
   })
 })

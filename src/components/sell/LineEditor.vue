@@ -33,18 +33,22 @@ const noteQuick = computed(() =>
   ),
 )
 
-function save() {
+async function save() {
   const l = cart.state.lines[props.index]
   if (!l) return
-  l.qty = Math.max(1, Math.floor(qty.value) || 1)
+  // Through the cart, so items the kitchen already has are reported as cancelled.
+  if (!(await cart.setQty(props.index, Math.max(1, Math.floor(qty.value) || 1)))) return
   l.note = note.value.trim()
+  const before = l.discountPct
   l.discountPct = Math.min(100, Math.max(0, Number(discountPct.value) || 0))
+  // A bigger discount than the cashier may give needs a manager.
+  if (l.discountPct > before && !(await cart.approveDiscount(() => (l.discountPct = before))))
+    return
   open.value = false
 }
 
-function remove() {
-  cart.remove(props.index)
-  open.value = false
+async function remove() {
+  if (await cart.remove(props.index)) open.value = false
 }
 </script>
 

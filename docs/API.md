@@ -6,7 +6,7 @@ setting. The screens don't need to change.
 
 - [How it works](#how-it-works) and [switching to your backend](#switching-to-your-backend)
 - [The mock backend](#the-mock-backend) and its JSON data files
-- [REST API reference](#rest-api-reference): 66 endpoints
+- [REST API reference](#rest-api-reference): 74 endpoints
 - [Building your backend](#building-your-backend): a checklist and the contract tests
 
 Types for every request and response are in [`src/types.ts`](../src/types.ts).
@@ -145,7 +145,8 @@ PINs are never returned.
 
 `Settings`: `storeName`, `address`, `phone`, `currency` (ISO code such as `USD` or `LAK`), `locale`, `decimals` (0–4),
 `taxLabel`, `taxRate` (%), `serviceRate` (%), `receiptFooter`, `pointsPerUnit` (loyalty points per 1 currency unit),
-`topSellerDays`, `receiptShowRates` (print the day's exchange rates and converted totals on receipts).
+`topSellerDays`, `receiptShowRates` (print the day's exchange rates and converted totals on receipts), `controls` and
+`dailySummary` (see [Staff controls](#staff-controls-and-activity) and [Daily summary](#daily-summary)).
 
 ### Exchange rates
 
@@ -295,12 +296,13 @@ into the current order.
 
 ### Orders
 
-| Method | Path                  | Access  | Query / body                                                             | Response                                       |
-| ------ | --------------------- | ------- | ------------------------------------------------------------------------ | ---------------------------------------------- |
-| `GET`  | `/orders`             | staff   | `?from=&to=&status=completed\|refunded&q=&customerId=&limit=50&offset=0` | `{ items: Order[], total }`, newest first      |
-| `GET`  | `/orders/:id`         | staff   | —                                                                        | `Order`                                        |
-| `POST` | `/orders/:id/refund`  | manager | `{ reason, restock: true }`                                              | `Order` with `status: "refunded"` and `refund` |
-| `GET`  | `/orders/top-sellers` | staff   | `?days=30&limit=8`                                                       | `[{ product, qty, revenue }]`, best first      |
+| Method | Path                  | Access | Query / body                                                                  | Response                                       |
+| ------ | --------------------- | ------ | ----------------------------------------------------------------------------- | ---------------------------------------------- |
+| `GET`  | `/orders`             | staff  | `?from=&to=&status=completed\|refunded&q=&customerId=&limit=50&offset=0`      | `{ items: Order[], total }`, newest first      |
+| `GET`  | `/orders/:id`         | staff  | —                                                                             | `Order`                                        |
+| `POST` | `/orders/:id/refund`  | staff  | `{ reason, restock: true, approvalId? }` (cashiers need a manager's approval) | `Order` with `status: "refunded"` and `refund` |
+| `POST` | `/orders/:id/reprint` | staff  | `{ approvalId? }` (needed when `controls.approveReprint` is on)               | `Order` (the reprint is logged)                |
+| `GET`  | `/orders/top-sellers` | staff  | `?days=30&limit=8`                                                            | `[{ product, qty, revenue }]`, best first      |
 
 `q` matches the order number (`221` or `#221`), table, customer name, staff name or item names. `from` is inclusive,
 `to` is exclusive. A refund puts items back into stock when `restock` is true, reverses the customer's spend and points,
@@ -386,6 +388,59 @@ staffName, items: [{ name, emoji, qty, options, note, cancelled, done }] }`.
 `summary.expectedCash = openingFloat + cash sales (minus change) − cash refunds + cash in − cash out.`
 It also includes the order and refund counts, gross sales and takings by payment method.
 
+### Staff controls and activity
+
+Cashiers need a **manager's approval** for some actions. The till asks a manager to enter their PIN, gets an approval id,
+and sends it with the action. Managers approve their own actions (no id needed). The server enforces this, so a
+cashier can't skip it by changing the app.
+
+| Method | Path                      | Access  | Body / query                                 | Response                                                   |
+| ------ | ------------------------- | ------- | -------------------------------------------- | ---------------------------------------------------------- |
+| `POST` | `/approvals`              | staff   | `{ pin, action, amount? }`                   | `201 Approval`, `403 WRONG_PIN` or `429 TOO_MANY_ATTEMPTS` |
+| `GET`  | `/audit`                  | manager | `?from=&to=&type=&staff=&limit=100&offset=0` | `{ items: AuditEntry[], total }`, newest first             |
+| `POST` | `/activity/cleared-order` | staff   | `{ total, items, table, sent, approvalId? }` | `204` (an order thrown away before it was saved or paid)   |
+| `GET`  | `/reports/risk`           | manager | `?from=&to=`                                 | `{ from, to, staff: StaffRisk[], alerts: RiskAlert[] }`    |
+
+- `action` is `discount`, `void` (removing items the kitchen already has, or deleting such an order), `refund`,
+  `cashOut` or `reprint`. For `discount`, `amount` is the percent approved.
+- An approval is good for 30 minutes and can be used **once**. Without a valid one the action fails with
+  `403 APPROVAL_REQUIRED`. Five wrong PINs in 5 minutes lock that cashier's approvals for a while; every wrong PIN is
+  logged.
+- Where approvals are checked:
+  - `POST /orders`: `discountApprovalId` when the whole discount (item and order discounts together, as a percent of
+    the full price) is above `controls.discountLimitPct`.
+  - Cancelled lines in `POST /tickets` and `voids` in `POST /orders`: `approvalId` on each line.
+  - `DELETE /held-orders/:id?approvalId=`: when the bill has items the kitchen already has.
+  - `POST /orders/:id/refund` (always, for cashiers) and `POST /orders/:id/reprint`.
+  - `POST /shifts/current/cash-moves` with `type: "out"`.
+- **Activity log** (`AuditEntry`: `{ id, at, type, staffId, staffName, approvedBy, amount, orderNumber, table, detail }`).
+  `type` is `discount`, `void`, `orderDeleted`, `refund`, `cashIn`, `cashOut`, `reprint`, `shiftClosed` (amount =
+  counted − expected) or `approvalFailed`. Every discount is logged, approved or not.
+- **Blind count** (`controls.blindCount`): for cashiers, `GET /shifts/current`, `GET /shifts` and the close response hide
+  the expected cash (`summary.blind: true`, cash figures 0, `shift.expectedCash: null`).
+- **Risk report**: per-staff sales, discounts, removed items, refunds, cash out, deleted orders and cash over/short,
+  with alerts: `cashShort` / `cashOver` (beyond `controls.cashTolerance`), `manyVoids` (3 or more, or over 3% of sales),
+  `highDiscounts` (over 10% of sales), `refunds`, `deletedOrders` and `failedPins` (3 or more).
+- `controls`: `{ discountLimitPct: 10, approveVoids: true, approveCashOut: true, approveReprint: false, blindCount:
+true, cashTolerance: 1 }`, changed with `PATCH /settings`.
+
+### Daily summary
+
+| Method | Path                     | Access  | Body / query       | Response                                                    |
+| ------ | ------------------------ | ------- | ------------------ | ----------------------------------------------------------- |
+| `GET`  | `/reports/daily-summary` | manager | `?date=YYYY-MM-DD` | `DailySummary`                                              |
+| `GET`  | `/summary/outbox`        | manager | —                  | `OutboxEntry[]`: summaries queued for sending, newest first |
+| `POST` | `/summary/send`          | manager | `{ date }`         | `201 OutboxEntry` (queue it now)                            |
+
+- `DailySummary`: sales, orders, average, items, the same weekday last week, payments by method, the top 5 items,
+  each shift's cash result, discounts, removed items, refunds, cash out, and the risk alerts for the day.
+- `dailySummary` settings: `{ enabled, sendAt: "shiftClose" | "time", time: "22:00", language, telegram, whatsapp, email }`
+  (recipients comma-separated).
+- **Sending is the backend's job.** The mock only queues entries: when a shift closes (`sendAt: "shiftClose"`), or the
+  first time the outbox is read after `time` (`sendAt: "time"`). A real backend runs a scheduled job and sends the text
+  through a Telegram bot, the WhatsApp Business API or email, then marks the entry `sent` or `failed`. The app builds
+  the message text with `summaryText()` in `src/utils/summaryText.ts`; a backend can use the same wording.
+
 ### Reports (manager)
 
 All take `?from=&to=` (epoch ms, `to` exclusive). The app sends the shop's local day boundaries.
@@ -454,13 +509,13 @@ Rules:
 
 ### Backup and admin (manager)
 
-| Method | Path           | Body                                                                | Response                                                                                                                                                                    |
-| ------ | -------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET`  | `/backup`      | —                                                                   | `{ app: "sun-pos", version: 2, at, data: { settings, staff, categories, products, stockMoves, customers, orders, shifts, held, exchangeRates, floor, stations, tickets } }` |
-| `POST` | `/backup`      | A backup file (version 1 files from the browser-only app also work) | `204`                                                                                                                                                                       |
-| `POST` | `/admin/reset` | `{ scope: "sales" \| "demo" \| "all" }`                             | `204`                                                                                                                                                                       |
+| Method | Path           | Body                                                                | Response                                                                                                                                                                                   |
+| ------ | -------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET`  | `/backup`      | —                                                                   | `{ app: "sun-pos", version: 2, at, data: { settings, staff, categories, products, stockMoves, customers, orders, shifts, held, exchangeRates, floor, stations, tickets, audit, outbox } }` |
+| `POST` | `/backup`      | A backup file (version 1 files from the browser-only app also work) | `204`                                                                                                                                                                                      |
+| `POST` | `/admin/reset` | `{ scope: "sales" \| "demo" \| "all" }`                             | `204`                                                                                                                                                                                      |
 
-`sales` clears orders, shifts, held orders, kitchen tickets and stock movements. `demo` does the same, then loads the demo sales. `all`
+`sales` clears orders, shifts, held orders, kitchen tickets, the activity log, the summary outbox and stock movements. `demo` does the same, then loads the demo sales. `all`
 restores all the seed data. Exchange rates are kept, except by `all`. A real backend may want to restrict or remove `/admin/reset` in production.
 
 ---
@@ -477,7 +532,8 @@ restores all the seed data. Exchange rates are kept, except by `all`. A real bac
 5. **Hash PINs** (bcrypt or argon2) and **limit wrong attempts**. The mock does neither.
 6. **Check it with the contract tests.** [`src/__tests__/api.spec.ts`](../src/__tests__/api.spec.ts) runs these
    scenarios against the mock: sign-in and roles, server-side pricing, options, retries, stock, payments, loyalty
-   points, refunds, cash-up, reports, exchange rates, split payments, tables and kitchen tickets. Run the same requests against your backend and compare.
+   points, refunds, cash-up, reports, exchange rates, split payments, tables, kitchen tickets, manager approvals,
+   the activity log, blind counts, the risk report and the daily summary. Run the same requests against your backend and compare.
 7. **Switch the app over** with `VITE_API_PROXY` (development) or `VITE_API_URL` (production).
 
 ## Frontend reference

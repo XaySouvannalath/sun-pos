@@ -17,6 +17,8 @@ import {
   ArrowRightLeft,
   LayoutGrid,
   ChefHat,
+  ShieldAlert,
+  MessageSquareText,
 } from 'lucide-vue-next'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
@@ -45,6 +47,8 @@ const links = computed(() =>
       badge: catalog.lowStock.length,
     },
     { to: '/reports', label: t('nav.reports'), icon: ChartColumn, admin: true },
+    { to: '/summary', label: t('nav.summary'), icon: MessageSquareText, admin: true },
+    { to: '/activity', label: t('nav.activity'), icon: ShieldAlert, admin: true },
     { to: '/rates', label: t('nav.rates'), icon: ArrowRightLeft, admin: true },
     { to: '/settings', label: t('nav.settings'), icon: Settings, admin: true },
   ].filter((l) => !l.admin || auth.isAdmin),

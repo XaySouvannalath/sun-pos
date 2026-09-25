@@ -60,7 +60,16 @@ function lookup(messages: unknown, key: string): string | undefined {
  * plural forms simply use one form).
  */
 export function t(key: MessageKey, params: Record<string, string | number> = {}): string {
-  let text = lookup(catalogs[language.value], key) ?? lookup(en, key) ?? key
+  return tIn(language.value, key, params)
+}
+
+/** Translate into a given language (e.g. a message for the owner, whatever the till shows). */
+export function tIn(
+  lang: Language,
+  key: MessageKey,
+  params: Record<string, string | number> = {},
+): string {
+  let text = lookup(catalogs[lang], key) ?? lookup(en, key) ?? key
   if (text.includes(' | ') && typeof params.n === 'number') {
     const [one, other] = text.split(' | ')
     text = (params.n === 1 ? one : other) ?? text

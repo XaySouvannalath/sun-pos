@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import AppSidebar from '@/components/AppSidebar.vue'
 import ToastHost from '@/components/ui/ToastHost.vue'
+import ApprovalModal from '@/components/ApprovalModal.vue'
 import { useSettingsStore } from '@/stores/settings'
 
 // Instantiate early so the saved theme is applied before first paint.
@@ -28,4 +29,5 @@ const bare = computed(() => route.meta.public === true)
     </main>
   </div>
   <ToastHost />
+  <ApprovalModal />
 </template>

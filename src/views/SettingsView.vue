@@ -12,6 +12,7 @@ import {
   ArrowRightLeft,
   ChefHat,
   X,
+  ShieldAlert,
 } from 'lucide-vue-next'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import { api } from '@/api'
@@ -31,6 +32,9 @@ const auth = useAuthStore()
 const app = useAppStore()
 const toast = useToastStore()
 const catalog = useCatalogStore()
+
+// Staff controls shown as on/off switches.
+const controlToggles = ['approveVoids', 'approveCashOut', 'approveReprint', 'blindCount'] as const
 
 // Kitchen and bar stations, edited in a copy and saved on their own.
 const stations = ref(catalog.stations.map((s) => ({ ...s })))
@@ -372,6 +376,73 @@ const confirmText = computed(() => ({
           </p>
         </div>
       </div>
+    </section>
+
+    <section class="card space-y-4 p-5">
+      <div class="flex flex-wrap items-start gap-3">
+        <div class="min-w-0 flex-1">
+          <h2 class="flex items-center gap-2 font-semibold">
+            <ShieldAlert class="size-4" /> {{ t('settings.controls.title') }}
+          </h2>
+          <p class="mt-1 text-sm text-ink-muted">{{ t('settings.controls.help') }}</p>
+        </div>
+        <RouterLink to="/activity" class="btn btn-outline btn-sm">
+          {{ t('settings.controls.viewActivity') }}
+        </RouterLink>
+      </div>
+      <div class="grid gap-3 sm:grid-cols-2">
+        <label>
+          <span class="label">{{ t('settings.controls.discountLimit') }}</span>
+          <input
+            v-model.number="form.controls.discountLimitPct"
+            type="number"
+            min="0"
+            max="100"
+            class="input"
+          />
+          <span class="mt-1 block text-xs text-ink-muted">{{
+            t('settings.controls.discountLimitHelp')
+          }}</span>
+        </label>
+        <label>
+          <span class="label">{{
+            t('settings.controls.tolerance', { currency: form.currency })
+          }}</span>
+          <input
+            v-model.number="form.controls.cashTolerance"
+            type="number"
+            min="0"
+            step="any"
+            class="input"
+          />
+          <span class="mt-1 block text-xs text-ink-muted">{{
+            t('settings.controls.toleranceHelp')
+          }}</span>
+        </label>
+      </div>
+      <ul class="divide-y divide-line/70 rounded-2xl border border-line">
+        <li v-for="c in controlToggles" :key="c" class="flex items-center gap-3 px-4 py-3">
+          <div class="min-w-0 flex-1">
+            <p :id="`ctl-${c}`" class="text-sm font-semibold">
+              {{ t(`settings.controls.${c}`) }}
+            </p>
+            <p class="text-xs text-ink-muted">{{ t(`settings.controls.${c}Help`) }}</p>
+          </div>
+          <button
+            role="switch"
+            :aria-checked="form.controls[c]"
+            :aria-labelledby="`ctl-${c}`"
+            class="relative h-7 w-12 shrink-0 rounded-full transition"
+            :class="form.controls[c] ? 'bg-primary' : 'bg-line'"
+            @click="form.controls[c] = !form.controls[c]"
+          >
+            <span
+              class="absolute top-1 left-1 size-5 rounded-full bg-surface shadow transition"
+              :class="form.controls[c] && 'translate-x-5'"
+            />
+          </button>
+        </li>
+      </ul>
     </section>
 
     <section class="card space-y-4 p-5">

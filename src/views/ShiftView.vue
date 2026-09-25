@@ -7,6 +7,7 @@ import AnimatedNumber from '@/components/ui/AnimatedNumber.vue'
 import { useShiftStore } from '@/stores/shift'
 import { useSettingsStore } from '@/stores/settings'
 import { useToastStore } from '@/stores/toast'
+import { useApprovalStore } from '@/stores/approval'
 import { api } from '@/api'
 import type { ShiftWithSummary } from '@/types'
 
@@ -24,6 +25,9 @@ const counted = ref(0)
 const closeNote = ref('')
 
 const summary = computed(() => shift.summary)
+/** Blind count: this cashier doesn't see what the drawer should hold. */
+const blind = computed(() => !!summary.value?.blind)
+const approval = useApprovalStore()
 const history = ref<ShiftWithSummary[]>([])
 
 async function loadHistory() {
@@ -49,13 +53,20 @@ function startMove(type: 'in' | 'out') {
 async function saveMove() {
   const amt = Number(moveAmount.value) || 0
   if (amt <= 0) return
-  await shift.moveCash(moveType.value, amt, moveReason.value.trim())
+  let approvalId: string | null = ''
+  if (moveType.value === 'out' && settings.s.controls.approveCashOut) {
+    approvalId = await approval.ask('cashOut', {
+      detail: [settings.money(amt), moveReason.value.trim()].filter(Boolean).join(' · '),
+    })
+    if (approvalId === null) return
+  }
+  await shift.moveCash(moveType.value, amt, moveReason.value.trim(), approvalId || null)
   moveOpen.value = false
   toast.show(moveType.value === 'in' ? t('shift.cashAdded') : t('shift.cashRemoved'), 'success')
 }
 
 function startClose() {
-  counted.value = summary.value?.expectedCash ?? 0
+  counted.value = blind.value ? 0 : (summary.value?.expectedCash ?? 0)
   closeNote.value = ''
   closeOpen.value = true
 }
@@ -64,7 +75,7 @@ async function closeShift() {
   await shift.close(Math.max(0, Number(counted.value) || 0), closeNote.value.trim())
   await loadHistory()
   closeOpen.value = false
-  toast.show(t('shift.closed'), 'success')
+  toast.show(blind.value ? t('shift.closedBlind') : t('shift.closed'), 'success')
 }
 </script>
 
@@ -135,7 +146,11 @@ async function closeShift() {
             {{ settings.money(summary.byMethod.card) }} · {{ settings.money(summary.byMethod.qr) }}
           </p>
         </div>
-        <div class="card border-primary/40 bg-primary-soft p-4">
+        <div v-if="blind" class="card p-4">
+          <p class="text-xs text-ink-muted">{{ t('shift.expectedInDrawer') }}</p>
+          <p class="mt-1 text-sm font-medium text-ink-muted">{{ t('shift.blindHidden') }}</p>
+        </div>
+        <div v-else class="card border-primary/40 bg-primary-soft p-4">
           <p class="text-xs text-ink-muted">{{ t('shift.expectedInDrawer') }}</p>
           <p class="text-2xl font-bold text-primary">
             <AnimatedNumber :value="summary.expectedCash" :format="settings.money" />
@@ -144,7 +159,7 @@ async function closeShift() {
       </div>
 
       <div class="grid gap-4 lg:grid-cols-2">
-        <div class="card p-5">
+        <div v-if="!blind" class="card p-5">
           <h2 class="mb-3 font-semibold">{{ t('shift.breakdown') }}</h2>
           <dl class="space-y-2 text-sm">
             <div class="flex justify-between">
@@ -225,9 +240,13 @@ async function closeShift() {
                 }}<span class="block text-xs text-ink-muted">{{ s.closedBy }}</span>
               </td>
               <td class="text-right">{{ settings.money(sum.gross) }}</td>
-              <td class="text-right">{{ settings.money(s.expectedCash ?? 0) }}</td>
+              <td class="text-right">
+                {{ s.expectedCash === null ? '—' : settings.money(s.expectedCash) }}
+              </td>
               <td class="text-right">{{ settings.money(s.countedCash ?? 0) }}</td>
+              <td v-if="s.expectedCash === null" class="text-right text-ink-muted">—</td>
               <td
+                v-else
                 class="text-right font-semibold"
                 :class="
                   (s.countedCash ?? 0) - (s.expectedCash ?? 0) < 0
@@ -280,8 +299,10 @@ async function closeShift() {
 
     <BaseModal v-model="closeOpen" :title="t('shift.close')" size="sm">
       <div v-if="summary" class="space-y-4">
-        <p class="text-sm text-ink-muted">{{ t('shift.countHelp') }}</p>
-        <div class="flex justify-between rounded-xl bg-surface-2 p-3 text-sm">
+        <p class="text-sm text-ink-muted">
+          {{ blind ? t('shift.countHelpBlind') : t('shift.countHelp') }}
+        </p>
+        <div v-if="!blind" class="flex justify-between rounded-xl bg-surface-2 p-3 text-sm">
           <span>{{ t('shift.expected') }}</span
           ><b>{{ settings.money(summary.expectedCash) }}</b>
         </div>
@@ -296,6 +317,7 @@ async function closeShift() {
           />
         </div>
         <p
+          v-if="!blind"
           class="text-sm font-semibold"
           :class="difference < 0 ? 'text-danger' : difference > 0 ? 'text-accent' : 'text-success'"
         >

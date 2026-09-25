@@ -23,6 +23,23 @@ const fallback: Settings = {
   pointsPerUnit: 1,
   topSellerDays: 30,
   receiptShowRates: true,
+  controls: {
+    discountLimitPct: 10,
+    approveVoids: true,
+    approveCashOut: true,
+    approveReprint: false,
+    blindCount: true,
+    cashTolerance: 1,
+  },
+  dailySummary: {
+    enabled: false,
+    sendAt: 'shiftClose',
+    time: '22:00',
+    language: 'en',
+    telegram: '',
+    whatsapp: '',
+    email: '',
+  },
 }
 
 export const useSettingsStore = defineStore('settings', () => {

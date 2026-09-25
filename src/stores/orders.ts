@@ -17,8 +17,13 @@ export const useOrdersStore = defineStore('orders', () => {
     })
   }
 
-  async function refund(id: string, reason: string, restock: boolean): Promise<Order> {
-    const order = await api.orders.refund(id, { reason, restock })
+  async function refund(
+    id: string,
+    reason: string,
+    restock: boolean,
+    approvalId?: string | null,
+  ): Promise<Order> {
+    const order = await api.orders.refund(id, { reason, restock, approvalId })
     // Stock, the drawer and the customer's points changed on the server.
     void Promise.allSettled([
       useCatalogStore().refreshProducts(),

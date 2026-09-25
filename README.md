@@ -18,6 +18,15 @@ large touch targets, and a comfortable dark theme.
   **Send** passes new items to the stations; paying sends anything not sent yet. Items removed after sending show as
   cancelled. The Kitchen screen shows tickets per station with waiting times, tick-off per item, Start → Ready →
   Served, recall and printing.
+- **Staff controls (theft and cash leaks)**: a manager's PIN is needed for discounts above a limit, removing items
+  the kitchen already has, deleting such orders, refunds by cashiers, cash out and (optionally) reprints. Cashiers
+  close their shift without seeing the expected cash (blind count). Every sensitive action is logged, and the
+  **Activity** screen shows per-staff totals and warnings (cash short, many removed items, high discounts, deleted
+  orders, wrong PINs). The server enforces all of it.
+- **Daily summary**: the day in one message (sales vs last week, payments, best sellers, each shift's cash result,
+  discounts and removed items, and what to check), in the owner's language. Send it from any phone with one tap to
+  WhatsApp, Telegram, LINE or email, or queue it automatically when a shift closes or at a set time (your backend
+  does the actual sending).
 - **Hold & resume** orders to serve the next customer.
 - **Split bill**: by items (each guest pays for what they had; the rest stays on the bill) or equally between 2–20
   guests, who pay one after another with any method.
@@ -68,7 +77,7 @@ npm run build:preview  # single-file preview at dist-preview/sun-pos.html (no pr
 
 ## Backend and API
 
-The frontend calls the REST API described in **[docs/API.md](docs/API.md)** (66 endpoints).
+The frontend calls the REST API described in **[docs/API.md](docs/API.md)** (74 endpoints).
 
 - **Out of the box:** `npm run dev` serves a mock backend at `/api/v1`. Its starting data is in
   `src/mock/data/*.json`, and changes are saved to `.mock-db.json` (git-ignored).

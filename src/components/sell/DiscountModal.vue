@@ -4,11 +4,13 @@ import { ref, watch } from 'vue'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import { useCartStore } from '@/stores/cart'
 import { useSettingsStore } from '@/stores/settings'
+import { useAuthStore } from '@/stores/auth'
 import type { DiscountType } from '@/types'
 
 const open = defineModel<boolean>({ required: true })
 const cart = useCartStore()
 const settings = useSettingsStore()
+const auth = useAuthStore()
 
 const type = ref<DiscountType>('percent')
 const value = ref(0)
@@ -19,9 +21,11 @@ watch(open, (o) => {
   value.value = cart.state.discount.value
 })
 
-function apply(v = value.value) {
+async function apply(v = value.value) {
+  const before = cart.state.discount
   cart.state.discount = { type: type.value, value: Math.max(0, Number(v) || 0) }
-  open.value = false
+  // Above the cashier's limit, a manager approves (or the old discount comes back).
+  if (await cart.approveDiscount(() => (cart.state.discount = before))) open.value = false
 }
 </script>
 
@@ -57,6 +61,9 @@ function apply(v = value.value) {
           @keydown.enter="apply()"
         />
       </div>
+      <p v-if="!auth.isAdmin" class="text-xs text-ink-muted">
+        {{ t('discount.limitHint', { n: settings.s.controls.discountLimitPct }) }}
+      </p>
     </div>
     <template #footer>
       <button class="btn btn-soft" @click="apply(0)">{{ t('discount.remove') }}</button>

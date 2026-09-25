@@ -47,6 +47,11 @@ const translatedCodes = [
   'INSUFFICIENT_PAYMENT',
   'OUT_OF_STOCK',
   'INVALID_BACKUP',
+  'WRONG_PIN',
+  'TOO_MANY_ATTEMPTS',
+  'APPROVAL_REQUIRED',
+  'TABLE_BUSY',
+  'TABLE_IN_USE',
 ] as const
 
 function errorMessage(code: string, serverMessage: string | undefined, status: number): string {

@@ -131,6 +131,11 @@ export interface Order extends Totals {
   splitWays?: number
 }
 
+/** A removed item that was already sent to the kitchen. */
+export interface VoidLine extends OrderLine {
+  approvalId?: string | null
+}
+
 export interface HeldOrder {
   id: string
   label: string
@@ -144,7 +149,7 @@ export interface HeldOrder {
   note: string
   customerId: string | null
   /** Items removed after they were sent, still to be reported to the kitchen as cancelled. */
-  voids: OrderLine[]
+  voids: VoidLine[]
   updatedAt: number
 }
 
@@ -220,6 +225,8 @@ export interface TicketLineInput {
   options: string[]
   note: string
   cancelled?: boolean
+  /** A cancelled item: the manager's approval, when needed. */
+  approvalId?: string | null
 }
 
 export interface TicketRequest {
@@ -295,6 +302,159 @@ export interface Settings {
   topSellerDays: number
   /** Print the day's exchange rates and converted total on receipts. */
   receiptShowRates: boolean
+  /** Staff controls: what cashiers need a manager's PIN for. */
+  controls: StaffControls
+  /** The end-of-day summary sent to the owner. */
+  dailySummary: DailySummarySettings
+}
+
+export interface StaffControls {
+  /** Cashiers may discount up to this percent without a manager (0 = always ask). */
+  discountLimitPct: number
+  /** Removing items already sent to the kitchen (or deleting such an order) needs a manager. */
+  approveVoids: boolean
+  /** Taking cash out of the drawer needs a manager. */
+  approveCashOut: boolean
+  /** Reprinting a receipt needs a manager. */
+  approveReprint: boolean
+  /** Cashiers close their shift without seeing the expected cash. */
+  blindCount: boolean
+  /** Cash over or short by more than this is flagged. */
+  cashTolerance: number
+}
+
+export interface DailySummarySettings {
+  enabled: boolean
+  /** When the summary is sent: when a shift closes, or at a set time. */
+  sendAt: 'shiftClose' | 'time'
+  /** HH:MM, local time. */
+  time: string
+  language: 'en' | 'lo' | 'zh' | 'vi'
+  /** Comma-separated recipients per channel. */
+  telegram: string
+  whatsapp: string
+  email: string
+}
+
+// ----- Approvals and activity -----
+
+/** Actions a cashier needs a manager's PIN for. */
+export type ApprovalAction = 'discount' | 'void' | 'refund' | 'cashOut' | 'reprint'
+
+export interface Approval {
+  id: string
+  action: ApprovalAction
+  managerName: string
+  /** For discounts: the highest percent approved. */
+  amount: number
+  at: number
+}
+
+export type AuditType =
+  | 'discount'
+  | 'void'
+  | 'orderDeleted'
+  | 'refund'
+  | 'cashIn'
+  | 'cashOut'
+  | 'reprint'
+  | 'shiftClosed'
+  | 'approvalFailed'
+
+/** One sensitive action, for the activity log. */
+export interface AuditEntry {
+  id: string
+  at: number
+  type: AuditType
+  staffId: string
+  staffName: string
+  /** The manager who approved it, when a cashier needed approval. */
+  approvedBy: string | null
+  /** Money involved (for a closed shift: counted minus expected). */
+  amount: number
+  orderNumber: number | null
+  table: string
+  /** Items, reason or note. */
+  detail: string
+}
+
+export type RiskAlertCode =
+  | 'cashShort'
+  | 'cashOver'
+  | 'manyVoids'
+  | 'highDiscounts'
+  | 'refunds'
+  | 'deletedOrders'
+  | 'failedPins'
+
+export interface RiskAlert {
+  level: 'warn' | 'info'
+  code: RiskAlertCode
+  staffName: string
+  /** Numbers for the message. */
+  amount: number
+  count: number
+  pct: number
+}
+
+export interface StaffRisk {
+  staffName: string
+  sales: number
+  orders: number
+  discounts: number
+  discountCount: number
+  voids: number
+  voidCount: number
+  refunds: number
+  refundCount: number
+  cashOut: number
+  deleted: number
+  /** Counted minus expected over this person's closed shifts. */
+  overShort: number
+  flagged: boolean
+}
+
+export interface RiskReport {
+  from: number
+  to: number
+  staff: StaffRisk[]
+  alerts: RiskAlert[]
+}
+
+export interface DailySummary {
+  date: string
+  sales: number
+  orders: number
+  avg: number
+  items: number
+  /** The same weekday a week earlier, for comparison. */
+  lastWeek: { sales: number; orders: number }
+  payments: { method: PaymentMethod; amount: number }[]
+  top: { name: string; qty: number; revenue: number }[]
+  shifts: {
+    staffName: string
+    openedAt: number
+    closedAt: number | null
+    expected: number
+    counted: number | null
+    diff: number | null
+  }[]
+  discounts: number
+  voids: { count: number; value: number }
+  refunds: { count: number; value: number }
+  cashOut: number
+  alerts: RiskAlert[]
+}
+
+/** A summary queued for sending (the backend delivers it). */
+export interface OutboxEntry {
+  id: string
+  at: number
+  date: string
+  trigger: 'shiftClose' | 'time' | 'manual'
+  channels: string[]
+  status: 'queued' | 'sent' | 'failed'
+  summary: DailySummary
 }
 
 // ----- Exchange rates -----
@@ -378,6 +538,8 @@ export interface CheckoutRequest {
   heldId?: string | null
   /** Cancelled items not yet reported to the kitchen. */
   voids?: TicketLineInput[]
+  /** A manager's approval for a discount above the cashier's limit. */
+  discountApprovalId?: string | null
 }
 
 export type HeldOrderInput = Omit<HeldOrder, 'id' | 'heldAt' | 'updatedAt'>
@@ -401,6 +563,8 @@ export interface ShiftSummary {
   cashIn: number
   cashOut: number
   expectedCash: number
+  /** Blind count: cash figures are hidden from this cashier. */
+  blind?: boolean
 }
 
 export interface ShiftWithSummary {
@@ -473,6 +637,8 @@ export interface DbData {
   floor: FloorPlan
   stations: Station[]
   tickets: KitchenTicket[]
+  audit: AuditEntry[]
+  outbox: OutboxEntry[]
 }
 
 export interface BackupFile {

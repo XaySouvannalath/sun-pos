@@ -112,3 +112,14 @@ export function mergeDiscounts(discounts: Discount[]): Discount {
     return { type: 'amount', value: used.reduce((s, d) => s + d.value, 0) }
   return used[0] ?? { type: 'percent', value: 0 }
 }
+
+/**
+ * The whole discount as a percent of the items' full price (item discounts and the order
+ * discount together). Used to check a cashier's discount limit, on the till and the server.
+ */
+export function discountPercent(lines: OrderLine[], discount: Discount, cfg: RateConfig): number {
+  const gross = lines.reduce((s, l) => s + l.unitPrice * l.qty, 0)
+  if (gross <= 0) return 0
+  const t = computeTotals(lines, discount, cfg)
+  return ((gross - t.subtotal + t.discount) / gross) * 100
+}

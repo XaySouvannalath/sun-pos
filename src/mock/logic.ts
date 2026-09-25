@@ -1,7 +1,13 @@
 // Business rules shared by the mock API: rankings, shift cash-up and reports.
 // Only relative imports here: this module also runs inside the Vite config (Node).
 import type {
+  AuditEntry,
   BreakdownBy,
+  DailySummary,
+  RiskAlert,
+  RiskReport,
+  StaffControls,
+  StaffRisk,
   BreakdownRow,
   Order,
   PaymentMethod,
@@ -228,4 +234,231 @@ export function breakdown(
   return [...m.entries()]
     .map(([key, v]) => ({ key, value: roundTo(v, decimals), pct: (v / total) * 100 }))
     .sort((a, b) => b.value - a.value)
+}
+
+// ---------------------------------------------------------------------------
+// Staff activity: risk report and daily summary
+// ---------------------------------------------------------------------------
+
+/** Thresholds for warnings. Chosen to be quiet on a normal day. */
+export const RISK = {
+  /** Voids above this share of the person's sales, or at least `voidCount` of them. */
+  voidPct: 3,
+  voidCount: 3,
+  /** Discounts above this share of the person's sales before discounts. */
+  discountPct: 10,
+  failedPins: 3,
+}
+
+/**
+ * Per-staff totals of sensitive actions, and warnings. Uses completed orders for sales and
+ * the activity log for everything else.
+ */
+export function riskReport(
+  orders: Order[],
+  audit: AuditEntry[],
+  from: number,
+  to: number,
+  controls: StaffControls,
+  decimals: number,
+): RiskReport {
+  const r = (n: number) => roundTo(n, decimals)
+  const rows = new Map<string, StaffRisk>()
+  const row = (name: string) => {
+    let x = rows.get(name)
+    if (!x) {
+      x = {
+        staffName: name,
+        sales: 0,
+        orders: 0,
+        discounts: 0,
+        discountCount: 0,
+        voids: 0,
+        voidCount: 0,
+        refunds: 0,
+        refundCount: 0,
+        cashOut: 0,
+        deleted: 0,
+        overShort: 0,
+        flagged: false,
+      }
+      rows.set(name, x)
+    }
+    return x
+  }
+  for (const o of inRange(orders, from, to)) {
+    if (o.status !== 'completed') continue
+    const x = row(o.staffName)
+    x.sales += o.total
+    x.orders++
+  }
+  const alerts: RiskAlert[] = []
+  const failed = new Map<string, number>()
+  const deletedCount = new Map<string, number>()
+  for (const e of audit) {
+    if (e.at < from || e.at >= to) continue
+    const x = row(e.staffName)
+    if (e.type === 'discount') {
+      x.discounts += e.amount
+      x.discountCount++
+    } else if (e.type === 'void') {
+      x.voids += e.amount
+      x.voidCount++
+    } else if (e.type === 'refund') {
+      x.refunds += e.amount
+      x.refundCount++
+    } else if (e.type === 'cashOut') x.cashOut += e.amount
+    else if (e.type === 'orderDeleted') {
+      x.deleted += e.amount
+      deletedCount.set(e.staffName, (deletedCount.get(e.staffName) ?? 0) + 1)
+    } else if (e.type === 'approvalFailed')
+      failed.set(e.staffName, (failed.get(e.staffName) ?? 0) + 1)
+    else if (e.type === 'shiftClosed') {
+      x.overShort += e.amount
+      if (Math.abs(e.amount) > controls.cashTolerance)
+        alerts.push({
+          level: e.amount < 0 ? 'warn' : 'info',
+          code: e.amount < 0 ? 'cashShort' : 'cashOver',
+          staffName: e.staffName,
+          amount: r(Math.abs(e.amount)),
+          count: 1,
+          pct: 0,
+        })
+    }
+  }
+  const pct = (part: number, whole: number) => (whole > 0 ? Math.round((part / whole) * 100) : 0)
+  for (const x of rows.values()) {
+    const base = { staffName: x.staffName, amount: 0, count: 0, pct: 0 }
+    if (x.voidCount && (x.voidCount >= RISK.voidCount || pct(x.voids, x.sales) > RISK.voidPct))
+      alerts.push({
+        ...base,
+        level: 'warn',
+        code: 'manyVoids',
+        amount: r(x.voids),
+        count: x.voidCount,
+        pct: pct(x.voids, x.sales),
+      })
+    const discPct = pct(x.discounts, x.sales + x.discounts)
+    if (x.discounts > 0 && discPct > RISK.discountPct)
+      alerts.push({
+        ...base,
+        level: 'warn',
+        code: 'highDiscounts',
+        amount: r(x.discounts),
+        count: x.discountCount,
+        pct: discPct,
+      })
+    if (x.refundCount)
+      alerts.push({
+        ...base,
+        level: 'info',
+        code: 'refunds',
+        amount: r(x.refunds),
+        count: x.refundCount,
+      })
+    const del = deletedCount.get(x.staffName) ?? 0
+    if (del)
+      alerts.push({
+        ...base,
+        level: 'warn',
+        code: 'deletedOrders',
+        amount: r(x.deleted),
+        count: del,
+      })
+    const f = failed.get(x.staffName) ?? 0
+    if (f >= RISK.failedPins) alerts.push({ ...base, level: 'warn', code: 'failedPins', count: f })
+  }
+  const warned = new Set(alerts.filter((a) => a.level === 'warn').map((a) => a.staffName))
+  const staff = [...rows.values()]
+    .map((x) => ({
+      ...x,
+      sales: r(x.sales),
+      discounts: r(x.discounts),
+      voids: r(x.voids),
+      refunds: r(x.refunds),
+      cashOut: r(x.cashOut),
+      deleted: r(x.deleted),
+      overShort: r(x.overShort),
+      flagged: warned.has(x.staffName),
+    }))
+    .sort((a, b) => Number(b.flagged) - Number(a.flagged) || b.sales - a.sales)
+  alerts.sort((a, b) => (a.level === b.level ? 0 : a.level === 'warn' ? -1 : 1))
+  return { from, to, staff, alerts }
+}
+
+/** Local midnight of a YYYY-MM-DD date. */
+export const dayStart = (date: string) => new Date(`${date}T00:00:00`).getTime()
+
+/** The end-of-day summary for the owner. */
+export function dailySummary(
+  date: string,
+  orders: Order[],
+  shifts: Shift[],
+  audit: AuditEntry[],
+  controls: StaffControls,
+  decimals: number,
+): DailySummary {
+  const r = (n: number) => roundTo(n, decimals)
+  const from = dayStart(date)
+  const to = from + DAY
+  const day = inRange(orders, from, to)
+  const done = day.filter((o) => o.status === 'completed')
+  const sales = done.reduce((s, o) => s + o.total, 0)
+  const lastWeek = inRange(orders, from - 7 * DAY, to - 7 * DAY).filter(
+    (o) => o.status === 'completed',
+  )
+
+  const pay: Record<PaymentMethod, number> = { cash: 0, card: 0, qr: 0 }
+  const items = new Map<string, { name: string; qty: number; revenue: number }>()
+  for (const o of done) {
+    pay.cash += netCash(o.payments, o.change)
+    for (const p of o.payments) if (p.method !== 'cash') pay[p.method] += p.amount
+    for (const l of o.lines) {
+      const it = items.get(l.productId) ?? { name: l.name, qty: 0, revenue: 0 }
+      it.qty += l.qty
+      it.revenue += lineTotal(l)
+      items.set(l.productId, it)
+    }
+  }
+
+  const inDay = audit.filter((e) => e.at >= from && e.at < to)
+  const total = (type: AuditEntry['type']) =>
+    r(inDay.filter((e) => e.type === type).reduce((s, e) => s + e.amount, 0))
+  const count = (type: AuditEntry['type']) => inDay.filter((e) => e.type === type).length
+  const refunded = orders.filter((o) => o.refund && o.refund.at >= from && o.refund.at < to)
+
+  return {
+    date,
+    sales: r(sales),
+    orders: done.length,
+    avg: r(done.length ? sales / done.length : 0),
+    items: done.reduce((s, o) => s + o.itemCount, 0),
+    lastWeek: { sales: r(lastWeek.reduce((s, o) => s + o.total, 0)), orders: lastWeek.length },
+    payments: (Object.keys(pay) as PaymentMethod[])
+      .filter((m) => pay[m] > 0)
+      .map((method) => ({ method, amount: r(pay[method]) })),
+    top: [...items.values()]
+      .sort((a, b) => b.qty - a.qty || b.revenue - a.revenue)
+      .slice(0, 5)
+      .map((i) => ({ ...i, revenue: r(i.revenue) })),
+    shifts: shifts
+      .filter((s) => s.openedAt < to && (s.closedAt ?? Infinity) >= from)
+      .sort((a, b) => a.openedAt - b.openedAt)
+      .map((s) => {
+        const expected = s.expectedCash ?? shiftSummary(s, orders, decimals).expectedCash
+        return {
+          staffName: s.closedBy ?? s.openedBy,
+          openedAt: s.openedAt,
+          closedAt: s.closedAt,
+          expected: r(expected),
+          counted: s.countedCash,
+          diff: s.countedCash === null ? null : r(s.countedCash - expected),
+        }
+      }),
+    discounts: total('discount'),
+    voids: { count: count('void'), value: total('void') },
+    refunds: { count: refunded.length, value: r(refunded.reduce((s, o) => s + o.total, 0)) },
+    cashOut: total('cashOut'),
+    alerts: riskReport(orders, audit, from, to, controls, decimals).alerts,
+  }
 }

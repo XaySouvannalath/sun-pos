@@ -89,8 +89,9 @@ async function hold() {
 }
 
 async function clear() {
-  await cart.discard()
+  // Close first: a manager's PIN may be asked for next.
   confirmClear.value = false
+  await cart.discard()
 }
 
 const sending = ref(false)

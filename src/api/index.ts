@@ -1,5 +1,12 @@
 // Typed functions for every Sun POS endpoint. See docs/API.md for details.
 import type {
+  Approval,
+  ApprovalAction,
+  AuditEntry,
+  AuditType,
+  DailySummary,
+  OutboxEntry,
+  RiskReport,
   BackupFile,
   BreakdownBy,
   BreakdownRow,
@@ -139,8 +146,11 @@ export const api = {
       } = {},
     ) => request<Page<Order>>('GET', '/orders', { query }),
     get: (id: string) => request<Order>('GET', `/orders/${enc(id)}`),
-    refund: (id: string, body: { reason: string; restock: boolean }) =>
+    refund: (id: string, body: { reason: string; restock: boolean; approvalId?: string | null }) =>
       request<Order>('POST', `/orders/${enc(id)}/refund`, { body }),
+    /** Records a receipt reprint (in the activity log). */
+    reprint: (id: string, approvalId?: string | null) =>
+      request<Order>('POST', `/orders/${enc(id)}/reprint`, { body: { approvalId } }),
     topSellers: (query: { days?: number; limit?: number } = {}) =>
       request<TopSeller[]>('GET', '/orders/top-sellers', { query }),
   },
@@ -158,7 +168,10 @@ export const api = {
     merge: (id: string, ids: string[]) =>
       request<HeldOrder>('POST', `/held-orders/${enc(id)}/merge`, { body: { ids } }),
     /** Removes a held order and returns it. */
-    remove: (id: string) => request<HeldOrder>('DELETE', `/held-orders/${enc(id)}`),
+    remove: (id: string, approvalId?: string | null) =>
+      request<HeldOrder>('DELETE', `/held-orders/${enc(id)}`, {
+        query: approvalId ? { approvalId } : {},
+      }),
   },
 
   customers: {
@@ -176,11 +189,43 @@ export const api = {
     current: () => request<ShiftWithSummary | null>('GET', '/shifts/current'),
     open: (openingFloat: number) =>
       request<ShiftWithSummary>('POST', '/shifts', { body: { openingFloat } }),
-    moveCash: (body: { type: 'in' | 'out'; amount: number; reason: string }) =>
-      request<ShiftWithSummary>('POST', '/shifts/current/cash-moves', { body }),
+    moveCash: (body: {
+      type: 'in' | 'out'
+      amount: number
+      reason: string
+      approvalId?: string | null
+    }) => request<ShiftWithSummary>('POST', '/shifts/current/cash-moves', { body }),
     close: (body: { countedCash: number; note: string }) =>
       request<ShiftWithSummary>('POST', '/shifts/current/close', { body }),
     history: (limit = 30) => request<ShiftWithSummary[]>('GET', '/shifts', { query: { limit } }),
+  },
+
+  /** A manager's PIN for a cashier's action. Throws WRONG_PIN or TOO_MANY_ATTEMPTS. */
+  approvals: {
+    request: (body: { pin: string; action: ApprovalAction; amount?: number }) =>
+      request<Approval>('POST', '/approvals', { body }),
+  },
+
+  activity: {
+    log: (
+      query: Partial<Range> & { type?: AuditType; staff?: string; limit?: number; offset?: number },
+    ) => request<Page<AuditEntry>>('GET', '/audit', { query }),
+    risk: (r: Range) => request<RiskReport>('GET', '/reports/risk', { query: { ...r } }),
+    /** Records an order thrown away before it was saved or paid. */
+    clearedOrder: (body: {
+      total: number
+      items: string
+      table: string
+      sent: boolean
+      approvalId?: string | null
+    }) => request<null>('POST', '/activity/cleared-order', { body }),
+  },
+
+  summary: {
+    get: (date: string) =>
+      request<DailySummary>('GET', '/reports/daily-summary', { query: { date } }),
+    outbox: () => request<OutboxEntry[]>('GET', '/summary/outbox'),
+    send: (date: string) => request<OutboxEntry>('POST', '/summary/send', { body: { date } }),
   },
 
   reports: {

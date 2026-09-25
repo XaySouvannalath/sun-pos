@@ -4,7 +4,13 @@ import { createDb, memoryAdapter, seedData } from '@/mock/db'
 import { createApi } from '@/mock/router'
 import { localDate } from '@/utils/rates'
 import type {
+  Approval,
+  AuditEntry,
   CheckoutRequest,
+  DailySummary,
+  OutboxEntry,
+  Page,
+  RiskReport,
   EffectiveRates,
   FloorPlan,
   HeldOrder,
@@ -428,5 +434,151 @@ describe('tables and kitchen tickets', () => {
       { qty: 2, cancelled: false },
       { qty: 1, cancelled: true },
     ])
+  })
+})
+
+describe('staff controls and the activity log', () => {
+  const RICE = 'prd-14'
+  const approval = (action: string, amount = 0, pin = '1234') =>
+    call<Approval & { error?: { code: string } }>('POST', '/approvals', { pin, action, amount })
+  const log = () => call<Page<AuditEntry>>('GET', '/audit').body.items
+
+  function openShiftAsManager() {
+    login()
+    call('POST', '/shifts', { openingFloat: 100 })
+  }
+
+  it('needs a manager for a cashier discount above the limit', () => {
+    openShiftAsManager()
+    login('0000')
+    const big = sale({
+      orderDiscount: { type: 'percent', value: 20 },
+      payments: [{ method: 'cash', amount: 10 }],
+    })
+    expect(call('POST', '/orders', big).body).toMatchObject({
+      error: { code: 'APPROVAL_REQUIRED' },
+    })
+    // Within the 10% limit: fine without approval.
+    const small = sale({ orderDiscount: { type: 'percent', value: 10 } })
+    expect(call('POST', '/orders', small).status).toBe(201)
+
+    // An approval for 15% doesn't cover 20%.
+    expect(
+      call('POST', '/orders', { ...big, discountApprovalId: approval('discount', 15).body.id })
+        .status,
+    ).toBe(403)
+    const ok = approval('discount', 20).body.id
+    expect(call('POST', '/orders', { ...big, discountApprovalId: ok }).status).toBe(201)
+    // Each approval works once.
+    expect(call('POST', '/orders', { ...big, id: 'again', discountApprovalId: ok }).status).toBe(
+      403,
+    )
+
+    login()
+    const discounts = log().filter((e) => e.type === 'discount')
+    expect(discounts).toHaveLength(2)
+    expect(discounts[0]).toMatchObject({ staffName: 'Cashier', approvedBy: 'Manager' })
+  })
+
+  it('logs wrong manager PINs and locks after five', () => {
+    login('0000')
+    for (let i = 0; i < 5; i++)
+      expect(approval('refund', 0, '9999').body).toMatchObject({ error: { code: 'WRONG_PIN' } })
+    expect(approval('refund', 0, '1234').status).toBe(429)
+    login()
+    expect(log().filter((e) => e.type === 'approvalFailed')).toHaveLength(5)
+  })
+
+  it('needs a manager to cancel sent items or delete a sent order', () => {
+    openShiftAsManager()
+    login('0000')
+    const cancel = { productId: RICE, qty: 1, options: [], note: '', cancelled: true }
+    expect(call('POST', '/tickets', { lines: [cancel] }).status).toBe(403)
+    const id = approval('void').body.id
+    expect(call('POST', '/tickets', { lines: [{ ...cancel, approvalId: id }] }).status).toBe(201)
+
+    const bill = call<HeldOrder>('POST', '/held-orders', {
+      label: 'T',
+      lines: [{ key: RICE, productId: RICE, name: 'Rice', qty: 2, sentQty: 2, options: [] }],
+    }).body
+    expect(call('DELETE', `/held-orders/${bill.id}`).status).toBe(403)
+    const del = approval('void').body.id
+    expect(call('DELETE', `/held-orders/${bill.id}`, null, { approvalId: del }).status).toBe(200)
+
+    login()
+    const entries = log()
+    expect(entries.find((e) => e.type === 'void')).toMatchObject({
+      approvedBy: 'Manager',
+      detail: '1 × Chicken Fried Rice',
+    })
+    expect(entries.find((e) => e.type === 'orderDeleted')).toMatchObject({
+      staffName: 'Cashier',
+      approvedBy: 'Manager',
+    })
+  })
+
+  it('lets a cashier refund and take cash out only with a manager', () => {
+    openShiftAsManager()
+    const order = call<Order>('POST', '/orders', sale()).body
+    login('0000')
+    expect(call('POST', `/orders/${order.id}/refund`, { reason: 'Cold' }).status).toBe(403)
+    const r = approval('refund').body.id
+    expect(
+      call('POST', `/orders/${order.id}/refund`, { reason: 'Cold', approvalId: r }).status,
+    ).toBe(200)
+
+    expect(call('POST', '/shifts/current/cash-moves', { type: 'out', amount: 5 }).status).toBe(403)
+    expect(call('POST', '/shifts/current/cash-moves', { type: 'in', amount: 5 }).status).toBe(200)
+    const c = approval('cashOut').body.id
+    expect(
+      call('POST', '/shifts/current/cash-moves', { type: 'out', amount: 5, approvalId: c }).status,
+    ).toBe(200)
+  })
+
+  it('hides expected cash from cashiers (blind count) and flags a short drawer', () => {
+    openShiftAsManager()
+    call('POST', '/orders', sale()) // $6.05 cash, $3.95 change
+    login('0000')
+    const cur = call<ShiftWithSummary>('GET', '/shifts/current').body
+    expect(cur.summary).toMatchObject({ blind: true, expectedCash: 0 })
+    call('POST', '/shifts/current/close', { countedCash: 100, note: '' }) // 6.05 short
+
+    login()
+    const now = Date.now()
+    const risk = call<RiskReport>('GET', '/reports/risk', null, {
+      from: now - 3600000,
+      to: now + 1,
+    }).body
+    expect(risk.alerts).toContainEqual(
+      expect.objectContaining({
+        code: 'cashShort',
+        staffName: 'Cashier',
+        amount: 6.05,
+        level: 'warn',
+      }),
+    )
+    expect(risk.staff.find((s) => s.staffName === 'Cashier')).toMatchObject({
+      flagged: true,
+      overShort: -6.05,
+    })
+  })
+
+  it('builds the daily summary and queues it when a shift closes', () => {
+    openShiftAsManager()
+    call('POST', '/orders', sale())
+    call('POST', '/shifts/current/close', { countedCash: 106.05, note: '' })
+    const today = localDate()
+    const s = call<DailySummary>('GET', '/reports/daily-summary', null, { date: today }).body
+    expect(s).toMatchObject({ date: today })
+    expect(s.orders).toBeGreaterThan(0)
+    expect(s.shifts[s.shifts.length - 1]).toMatchObject({ staffName: 'Manager', diff: 0 })
+    expect(s.top.length).toBeGreaterThan(0)
+
+    const outbox = call<OutboxEntry[]>('GET', '/summary/outbox').body
+    expect(outbox[0]).toMatchObject({ date: today, trigger: 'shiftClose', status: 'queued' })
+    expect(call('POST', '/summary/send', { date: today }).status).toBe(201)
+
+    login('0000')
+    expect(call('GET', '/reports/daily-summary').status).toBe(403)
   })
 })
