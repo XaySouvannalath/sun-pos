@@ -82,6 +82,7 @@ const states = computed(() => {
         }
       : { kind: here ? 'here' : 'free' }
     state.ready = kitchen.readyTables.has(tb.id)
+    state.movable = !!bill && !picking.value
     if (picking.value) {
       const p = picking.value
       state.disabled = tb.id === p.bill.tableId || (p.mode === 'move' ? !!bill || here : !bill)
@@ -131,24 +132,63 @@ function startPick(mode: 'move' | 'merge') {
   sheet.value = null
 }
 
+/** Moves a bill to a free table. The message offers Undo, in case of a wrong tap or drop. */
+async function moveBill(bill: HeldOrder, target: DiningTable) {
+  const from = floor.tableById.get(bill.tableId ?? '')
+  try {
+    await saveOpenOrder()
+    await api.held.move(bill.id, target.id)
+    toast.show(
+      t('tables.moved', { from: bill.table, to: target.name }),
+      'success',
+      6000,
+      from && {
+        label: t('tables.undo'),
+        run: async () => {
+          try {
+            await api.held.move(bill.id, from.id)
+            toast.show(t('tables.moved', { from: target.name, to: from.name }), 'success')
+          } finally {
+            await cart.loadHeld()
+          }
+        },
+      },
+    )
+  } finally {
+    await cart.loadHeld()
+  }
+}
+
+async function mergeBill(bill: HeldOrder, target: DiningTable) {
+  try {
+    await saveOpenOrder()
+    await api.held.merge(cart.heldForTable(target.id)!.id, [bill.id])
+    toast.show(t('tables.mergedInto', { from: bill.table, to: target.name }), 'success')
+  } finally {
+    await cart.loadHeld()
+  }
+}
+
 async function pick(target: DiningTable) {
   const p = picking.value
   if (!p || states.value[target.id]?.disabled) return
-  const from = p.bill.table
-  try {
-    await saveOpenOrder()
-    if (p.mode === 'move') {
-      await api.held.move(p.bill.id, target.id)
-      toast.show(t('tables.moved', { from, to: target.name }), 'success')
-    } else {
-      const into = cart.heldForTable(target.id)!
-      await api.held.merge(into.id, [p.bill.id])
-      toast.show(t('tables.mergedInto', { from, to: target.name }), 'success')
-    }
-  } finally {
-    picking.value = null
-    await cart.loadHeld()
-  }
+  picking.value = null
+  if (p.mode === 'move') await moveBill(p.bill, target)
+  else await mergeBill(p.bill, target)
+}
+
+/** Drag and drop: onto a free table moves the bill; onto a table in use asks to merge. */
+const confirmMerge = ref<{ bill: HeldOrder; target: DiningTable } | null>(null)
+async function drop(from: DiningTable, to: DiningTable) {
+  const bill = cart.heldForTable(from.id)
+  if (!bill) return
+  if (cart.heldForTable(to.id)) confirmMerge.value = { bill, target: to }
+  else await moveBill(bill, to)
+}
+async function doMerge() {
+  const c = confirmMerge.value
+  confirmMerge.value = null
+  if (c) await mergeBill(c.bill, c.target)
 }
 
 // ---------------------------------------------------------------------------
@@ -361,7 +401,7 @@ onBeforeRouteLeave(() => !dirty.value || window.confirm(t('tables.leaveUnsaved')
     </p>
 
     <div v-else class="grid gap-4" :class="editing && 'lg:grid-cols-[minmax(0,1fr)_18rem]'">
-      <FloorCanvas v-if="!editing" :tables="areaTables" :states="states" @tap="tap" />
+      <FloorCanvas v-if="!editing" :tables="areaTables" :states="states" @tap="tap" @drop="drop" />
       <FloorCanvas
         v-else
         :tables="draftTables"
@@ -437,7 +477,7 @@ onBeforeRouteLeave(() => !dirty.value || window.confirm(t('tables.leaveUnsaved')
     </div>
 
     <p v-if="!editing && floor.plan.tables.length" class="text-xs text-ink-muted">
-      {{ t('tables.hint') }}
+      {{ t('tables.hint') }} {{ t('tables.dragHint') }}
     </p>
 
     <!-- A busy table: its bill and what to do with it -->
@@ -485,6 +525,28 @@ onBeforeRouteLeave(() => !dirty.value || window.confirm(t('tables.leaveUnsaved')
             <ReceiptText class="size-4" /> {{ t('tables.openBill') }}
           </button>
         </div>
+      </template>
+    </BaseModal>
+
+    <!-- Dropped a bill on a table in use -->
+    <BaseModal
+      :model-value="!!confirmMerge"
+      :title="
+        confirmMerge
+          ? t('tables.mergeTitle', { from: confirmMerge.bill.table, to: confirmMerge.target.name })
+          : ''
+      "
+      size="sm"
+      @update:model-value="confirmMerge = null"
+    >
+      <p class="text-sm text-ink-muted">{{ t('tables.mergeBody') }}</p>
+      <template #footer>
+        <button class="btn btn-soft flex-1" @click="confirmMerge = null">
+          {{ t('common.cancel') }}
+        </button>
+        <button class="btn btn-primary flex-1" @click="doMerge">
+          <Merge class="size-4" /> {{ t('tables.merge') }}
+        </button>
       </template>
     </BaseModal>
 

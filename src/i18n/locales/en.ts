@@ -784,6 +784,16 @@ const en = {
     },
   },
   tables: {
+    moveOrderHelp: 'Choose the table to move this order to. Its kitchen tickets move with it.',
+    moveOrder: 'Move table {n}',
+    mergeBody:
+      'Both bills become one bill on the second table. Items already sent to the kitchen stay sent.',
+    mergeTitle: 'Merge table {from} into table {to}?',
+    undo: 'Undo',
+    dropMerge: 'Merge {from} into {to}',
+    dropMove: 'Move {from} to {to}',
+    dropHint: 'Drop table {n} on another table',
+    dragHint: 'You can also drag a table in use onto another table to move or merge its bill.',
     title: 'Tables',
     editTitle: 'Edit table layout',
     editLayout: 'Edit layout',

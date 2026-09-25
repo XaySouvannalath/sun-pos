@@ -174,4 +174,28 @@ describe('stores over the API', () => {
     const cancel = kitchen.active.find((t) => t.items.some((i) => i.cancelled))!
     expect(cancel.items).toMatchObject([{ name: 'Chicken Fried Rice', qty: 1, cancelled: true }])
   })
+
+  it('moves a table order to another table, with its kitchen tickets', async () => {
+    await signedIn()
+    const { useCartStore } = await import('@/stores/cart')
+    const { useCatalogStore } = await import('@/stores/catalog')
+    const { useFloorStore } = await import('@/stores/floor')
+    const { useKitchenStore } = await import('@/stores/kitchen')
+    const cart = useCartStore()
+    const [from, to] = useFloorStore().plan.tables
+    const rice = useCatalogStore().products.find((p) => p.name === 'Chicken Fried Rice')!
+
+    await cart.openTable(from!)
+    cart.add(rice)
+    await cart.send()
+    await cart.openTable(from!)
+    await cart.moveTo(to!)
+    expect(cart.state).toMatchObject({ tableId: to!.id, table: to!.name })
+    expect(cart.heldForTable(to!.id)).toBeTruthy()
+    expect(cart.heldForTable(from!.id)).toBeUndefined()
+
+    const kitchen = useKitchenStore()
+    await kitchen.load()
+    expect(kitchen.active[0]).toMatchObject({ tableId: to!.id, table: to!.name })
+  })
 })

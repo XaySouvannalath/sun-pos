@@ -171,7 +171,16 @@ function sentLabel(l: { qty: number; sentQty?: number; categoryId: string }) {
               ? 'border-primary/40 bg-primary-soft font-semibold'
               : 'border-dashed border-line text-ink-muted hover:border-primary hover:text-primary'
           "
-          :aria-label="t('cart.tableLabel')"
+          :aria-label="
+            cart.state.table && !cart.isEmpty
+              ? t('tables.moveOrder', { n: cart.state.table })
+              : t('cart.tableLabel')
+          "
+          :title="
+            cart.state.table && !cart.isEmpty
+              ? t('tables.moveOrder', { n: cart.state.table })
+              : t('cart.tableLabel')
+          "
           @click="tableOpen = true"
         >
           <LayoutGrid class="size-4 shrink-0" />

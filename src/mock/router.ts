@@ -997,7 +997,11 @@ export function createApi(db: Db) {
   })
 
   route('PUT', '/held-orders/:id', 'staff', ({ params, body }) => {
-    const h = heldFrom(body, findHeld(params.id!))
+    const base = findHeld(params.id!)
+    const h = heldFrom(body, base)
+    // Saved to another table (moved from the Sell screen): its tickets follow it.
+    if (base.tableId !== h.tableId)
+      retargetTickets(base.tableId, { tableId: h.tableId, table: h.table })
     d().held = d().held.map((x) => (x.id === h.id ? h : x))
     return h
   })

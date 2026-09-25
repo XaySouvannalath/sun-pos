@@ -323,7 +323,8 @@ Saved bills are shared across tills. A bill with a `tableId` is that table's ope
   `heldId`) removes it in the same step.
 - `lines[].sentQty` records how many of each item the kitchen already has. `voids` are items removed after they were
   sent; the kitchen is told they're cancelled when the bill is sent or paid.
-- Moving or merging a bill also moves its open kitchen tickets, so "ready" shows at the right table.
+- Moving or merging a bill (or saving it with a different `tableId`) also moves its open kitchen tickets, so "ready"
+  shows at the right table.
 - Merging combines identical items, keeps notes and the first customer, and adds up amount discounts (otherwise the
   target bill's discount is kept).
 

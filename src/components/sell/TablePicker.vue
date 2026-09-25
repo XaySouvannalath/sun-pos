@@ -5,11 +5,19 @@ import { t } from '@/i18n'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import { useCartStore } from '@/stores/cart'
 import { useFloorStore } from '@/stores/floor'
+import { useToastStore } from '@/stores/toast'
 import type { DiningTable } from '@/types'
 
 const open = defineModel<boolean>({ required: true })
 const cart = useCartStore()
 const floor = useFloorStore()
+const toast = useToastStore()
+
+/** An order that already has items and a table is moved, not just labelled. */
+const moving = computed(() => !!cart.state.tableId && !cart.isEmpty)
+const title = computed(() =>
+  moving.value ? t('tables.moveOrder', { n: cart.state.table }) : t('tables.chooseTable'),
+)
 
 const areaId = ref('')
 watch(open, (o) => {
@@ -30,14 +38,26 @@ const busy = (tb: DiningTable) => {
   return !!bill && bill.id !== cart.state.heldId
 }
 
-function choose(tb: DiningTable | null) {
-  cart.setTable(tb)
+async function choose(tb: DiningTable | null) {
+  if (tb && moving.value && tb.id !== cart.state.tableId) {
+    const from = floor.tableById.get(cart.state.tableId!)
+    await cart.moveTo(tb)
+    toast.show(
+      t('tables.moved', { from: from?.name ?? '', to: tb.name }),
+      'success',
+      6000,
+      from && {
+        label: t('tables.undo'),
+        run: () => cart.moveTo(from),
+      },
+    )
+  } else cart.setTable(tb)
   open.value = false
 }
 </script>
 
 <template>
-  <BaseModal v-model="open" :title="t('tables.chooseTable')" size="md">
+  <BaseModal v-model="open" :title="title" size="md">
     <div v-if="floor.plan.areas.length > 1" class="segmented mb-4">
       <button
         v-for="a in floor.plan.areas"
@@ -48,6 +68,7 @@ function choose(tb: DiningTable | null) {
         {{ a.name }}
       </button>
     </div>
+    <p v-if="moving" class="mb-3 text-sm text-ink-muted">{{ t('tables.moveOrderHelp') }}</p>
     <div class="grid grid-cols-3 gap-2 sm:grid-cols-4">
       <button
         v-for="tb in tables"

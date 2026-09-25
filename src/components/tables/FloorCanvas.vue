@@ -15,6 +15,8 @@ export interface TableState {
   ready?: boolean
   /** In move/merge mode: this table can't be chosen. */
   disabled?: boolean
+  /** The table has a bill that can be dragged to another table. */
+  movable?: boolean
 }
 
 const props = defineProps<{
@@ -27,6 +29,8 @@ const emit = defineEmits<{
   tap: [table: DiningTable]
   select: [id: string | null]
   change: [id: string, patch: Partial<DiningTable>]
+  /** A bill was dragged from one table and dropped on another. */
+  drop: [from: DiningTable, to: DiningTable]
 }>()
 
 /** Plan size in plan units; tables are placed on a 10-unit grid. */
@@ -49,7 +53,48 @@ interface Drag {
 }
 let drag: Drag | null = null
 
+// Carrying a bill to another table (outside edit mode): drag a table in use onto another table.
+interface Carry {
+  from: DiningTable
+  startX: number
+  startY: number
+  active: boolean
+}
+let carry: Carry | null = null
+const carrying = ref<{ id: string; x: number; y: number; overId: string | null } | null>(null)
+let skipClick = false
+
+function tableAt(clientX: number, clientY: number, except: string) {
+  const r = board.value!.getBoundingClientRect()
+  const px = ((clientX - r.left) / r.width) * PLAN.w
+  const py = ((clientY - r.top) / r.height) * PLAN.h
+  return props.tables.find(
+    (tb) => tb.id !== except && px >= tb.x && px <= tb.x + tb.w && py >= tb.y && py <= tb.y + tb.h,
+  )
+}
+
+/** What dropping here would do: move to a free table, or merge into one in use. */
+function dropKind(id: string | null): 'move' | 'merge' | null {
+  const st = id ? props.states?.[id] : undefined
+  if (!st || st.disabled) return null
+  return st.kind === 'free' ? 'move' : 'merge'
+}
+
+function stopCarry() {
+  carry = null
+  carrying.value = null
+  window.removeEventListener('keydown', escCarry)
+}
+function escCarry(e: KeyboardEvent) {
+  if (e.key === 'Escape') stopCarry()
+}
+
 function begin(e: PointerEvent, table: DiningTable, mode: Drag['mode']) {
+  if (!props.editing && mode === 'move' && props.states?.[table.id]?.movable && board.value) {
+    ;(e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId)
+    carry = { from: table, startX: e.clientX, startY: e.clientY, active: false }
+    return
+  }
   if (!props.editing || !board.value) return
   e.preventDefault()
   e.stopPropagation()
@@ -67,6 +112,20 @@ function begin(e: PointerEvent, table: DiningTable, mode: Drag['mode']) {
 }
 
 function move(e: PointerEvent) {
+  if (carry) {
+    // A small wobble is still a tap; only a real drag carries the bill.
+    if (!carry.active && Math.hypot(e.clientX - carry.startX, e.clientY - carry.startY) < 8) return
+    if (!carry.active) window.addEventListener('keydown', escCarry)
+    carry.active = true
+    const r = board.value!.getBoundingClientRect()
+    carrying.value = {
+      id: carry.from.id,
+      x: e.clientX - r.left,
+      y: e.clientY - r.top,
+      overId: tableAt(e.clientX, e.clientY, carry.from.id)?.id ?? null,
+    }
+    return
+  }
   if (!drag) return
   const dx = (e.clientX - drag.startX) * drag.unit
   const dy = (e.clientY - drag.startY) * drag.unit
@@ -88,7 +147,23 @@ function move(e: PointerEvent) {
 
 function end() {
   drag = null
+  if (!carry) return
+  if (carry.active) {
+    skipClick = true
+    const to = carrying.value?.overId
+    const target = to ? props.tables.find((tb) => tb.id === to) : undefined
+    if (target && dropKind(target.id)) emit('drop', carry.from, target)
+  }
+  stopCarry()
 }
+
+const overKind = computed(() => dropKind(carrying.value?.overId ?? null))
+const carriedName = computed(
+  () => props.tables.find((tb) => tb.id === carrying.value?.id)?.name ?? '',
+)
+const overName = computed(
+  () => props.tables.find((tb) => tb.id === carrying.value?.overId)?.name ?? '',
+)
 
 /** Arrow keys nudge the selected table (Shift for bigger steps). */
 function onKey(e: KeyboardEvent, table: DiningTable) {
@@ -109,6 +184,10 @@ function onKey(e: KeyboardEvent, table: DiningTable) {
 }
 
 function click(table: DiningTable) {
+  if (skipClick) {
+    skipClick = false
+    return
+  }
   if (props.editing) emit('select', table.id)
   else if (!props.states?.[table.id]?.disabled) emit('tap', table)
 }
@@ -144,6 +223,12 @@ function look(tb: DiningTable) {
       ? 'border-primary bg-primary-soft ring-4 ring-primary/25'
       : 'border-line bg-surface'
   if (st?.disabled) return 'border-line bg-surface opacity-40'
+  const c = carrying.value
+  if (c?.id === tb.id) return 'border-dashed border-primary bg-primary-soft opacity-50'
+  if (c?.overId === tb.id && overKind.value === 'move')
+    return 'border-success bg-success-soft ring-4 ring-success/30'
+  if (c?.overId === tb.id && overKind.value === 'merge')
+    return 'border-accent bg-accent-soft ring-4 ring-accent/30'
   if (st?.kind === 'busy') return 'border-primary/50 bg-primary-soft text-ink'
   if (st?.kind === 'here') return 'border-dashed border-accent bg-accent-soft'
   return 'border-line bg-surface hover:border-primary'
@@ -170,6 +255,7 @@ function look(tb: DiningTable) {
           look(tb),
           tb.shape === 'round' ? 'rounded-full' : 'rounded-2xl',
           editing ? 'cursor-grab touch-none active:cursor-grabbing' : 'lift',
+          !editing && states?.[tb.id]?.movable && 'touch-none',
           overlapping.has(tb.id) && '!border-danger',
           editing && selectedId === tb.id && 'z-10',
         ]"
@@ -212,6 +298,29 @@ function look(tb: DiningTable) {
           @pointerdown="begin($event, tb, 'resize')"
         />
       </button>
+
+      <!-- The bill being carried follows the pointer. -->
+      <div
+        v-if="carrying"
+        class="pointer-events-none absolute z-20 -translate-x-1/2 -translate-y-[130%] rounded-full px-3 py-1.5 text-xs font-semibold whitespace-nowrap shadow-lg"
+        :class="
+          overKind === 'move'
+            ? 'bg-success text-primary-ink'
+            : overKind === 'merge'
+              ? 'bg-accent text-primary-ink'
+              : 'bg-surface text-ink'
+        "
+        :style="{ left: `${carrying.x}px`, top: `${carrying.y}px` }"
+        role="status"
+      >
+        {{
+          overKind === 'move'
+            ? t('tables.dropMove', { from: carriedName, to: overName })
+            : overKind === 'merge'
+              ? t('tables.dropMerge', { from: carriedName, to: overName })
+              : t('tables.dropHint', { n: carriedName })
+        }}
+      </div>
     </div>
   </div>
 </template>

@@ -289,6 +289,13 @@ export const useCartStore = defineStore('cart', () => {
     if (table) c.orderType = 'dine-in'
   }
 
+  /** Moves the order on screen to another table (its saved bill and kitchen tickets too). */
+  async function moveTo(table: { id: string; name: string }) {
+    const c = state.value
+    if (c.heldId) upsertHeld(await api.held.move(c.heldId, table.id))
+    setTable(table)
+  }
+
   /**
    * Sends new items (and cancellations) to the kitchen and bar. A table's order is then saved
    * to its table and the screen cleared, ready for the next table.
@@ -438,6 +445,7 @@ export const useCartStore = defineStore('cart', () => {
     resume,
     openTable,
     setTable,
+    moveTo,
     send,
     discard,
     hasUnsent,
