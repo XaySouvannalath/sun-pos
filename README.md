@@ -11,6 +11,13 @@ large touch targets, and a comfortable dark theme.
 - **Top sellers**: a ranked strip of the best-selling items (last 30 days by default) with one-tap add.
 - **Options & modifiers**: size, temperature, milk, extras and so on, each with an extra price.
 - **Cart**: quantity steppers, item notes, item and order discounts, dine-in/takeaway/delivery, table number.
+- **Tables**: a floor plan per area (Indoor, Terrace…) showing free tables, open bills with their total and time
+  seated, and a bell when food is ready. Tap a table to start or open its bill; move or merge bills between tables.
+  Managers draw the layout by dragging tables (mouse, touch or arrow keys), resizing them, and choosing shape and seats.
+- **Kitchen & bar tickets**: each category goes to a station (Coffee → Bar, Food → Kitchen, Bakery → no ticket).
+  **Send** passes new items to the stations; paying sends anything not sent yet. Items removed after sending show as
+  cancelled. The Kitchen screen shows tickets per station with waiting times, tick-off per item, Start → Ready →
+  Served, recall and printing.
 - **Hold & resume** orders to serve the next customer.
 - **Split bill**: by items (each guest pays for what they had; the rest stays on the bill) or equally between 2–20
   guests, who pay one after another with any method.
@@ -61,7 +68,7 @@ npm run build:preview  # single-file preview at dist-preview/sun-pos.html (no pr
 
 ## Backend and API
 
-The frontend calls the REST API described in **[docs/API.md](docs/API.md)** (56 endpoints).
+The frontend calls the REST API described in **[docs/API.md](docs/API.md)** (66 endpoints).
 
 - **Out of the box:** `npm run dev` serves a mock backend at `/api/v1`. Its starting data is in
   `src/mock/data/*.json`, and changes are saved to `.mock-db.json` (git-ignored).

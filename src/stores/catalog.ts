@@ -1,12 +1,14 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { ApiError, api } from '@/api'
-import type { Category, Product, StockMove } from '@/types'
+import type { Category, Product, Station, StockMove } from '@/types'
 
 export const useCatalogStore = defineStore('catalog', () => {
   const categories = ref<Category[]>([])
   const products = ref<Product[]>([])
   const stockMoves = ref<StockMove[]>([])
+  /** Kitchen, bar and other places where orders are prepared. */
+  const stations = ref<Station[]>([])
 
   const byId = computed(() => new Map(products.value.map((p) => [p.id, p])))
   const categoryById = computed(() => new Map(categories.value.map((c) => [c.id, c])))
@@ -16,10 +18,17 @@ export const useCatalogStore = defineStore('catalog', () => {
   )
 
   async function load() {
-    ;[categories.value, products.value] = await Promise.all([
+    ;[categories.value, products.value, stations.value] = await Promise.all([
       api.categories.list(),
       api.products.list(),
+      api.stations.list(),
     ])
+  }
+
+  async function saveStations(list: Partial<Station>[]) {
+    stations.value = await api.stations.save(list)
+    // Categories sent to a removed station were changed on the server.
+    categories.value = await api.categories.list()
   }
 
   async function refreshProducts() {
@@ -106,6 +115,8 @@ export const useCatalogStore = defineStore('catalog', () => {
     categories,
     products,
     stockMoves,
+    stations,
+    saveStations,
     byId,
     categoryById,
     activeProducts,

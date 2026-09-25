@@ -81,3 +81,34 @@ export function startOfDay(ts: number): number {
 export function clone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v)) as T
 }
+
+/** A line with no note or discount, which can be added to an identical one. */
+const plainLine = (l: OrderLine) => !l.note && !l.discountPct
+
+/**
+ * Adds lines from another bill: identical plain lines (same item and options) add up,
+ * everything else is appended. Returns a new array; `newId` gives appended lines an id.
+ */
+export function mergeLines(
+  into: OrderLine[],
+  lines: OrderLine[],
+  newId: () => string = uid,
+): OrderLine[] {
+  const out = into.map((l) => ({ ...l }))
+  for (const line of lines) {
+    const same = plainLine(line) ? out.find((l) => l.key === line.key && plainLine(l)) : undefined
+    if (same) {
+      same.qty += line.qty
+      same.sentQty = (same.sentQty ?? 0) + (line.sentQty ?? 0)
+    } else out.push({ ...line, id: newId() })
+  }
+  return out
+}
+
+/** The discount of combined bills: amounts add up; otherwise the first bill's discount wins. */
+export function mergeDiscounts(discounts: Discount[]): Discount {
+  const used = discounts.filter((d) => d.value > 0)
+  if (used.length && used.every((d) => d.type === 'amount'))
+    return { type: 'amount', value: used.reduce((s, d) => s + d.value, 0) }
+  return used[0] ?? { type: 'percent', value: 0 }
+}

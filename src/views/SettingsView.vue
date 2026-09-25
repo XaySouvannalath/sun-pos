@@ -10,6 +10,8 @@ import {
   Crown,
   FileSpreadsheet,
   ArrowRightLeft,
+  ChefHat,
+  X,
 } from 'lucide-vue-next'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import { api } from '@/api'
@@ -18,6 +20,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
 import { useToastStore } from '@/stores/toast'
 import { useRatesStore } from '@/stores/rates'
+import { useCatalogStore } from '@/stores/catalog'
 import { canDownload } from '@/utils/env'
 import { downloadJson } from '@/utils/download'
 import { clone } from '@/utils/pos'
@@ -27,6 +30,23 @@ const settings = useSettingsStore()
 const auth = useAuthStore()
 const app = useAppStore()
 const toast = useToastStore()
+const catalog = useCatalogStore()
+
+// Kitchen and bar stations, edited in a copy and saved on their own.
+const stations = ref(catalog.stations.map((s) => ({ ...s })))
+watch(
+  () => catalog.stations,
+  (list) => (stations.value = list.map((s) => ({ ...s }))),
+)
+const stationsDirty = computed(
+  () => JSON.stringify(stations.value) !== JSON.stringify(catalog.stations),
+)
+async function saveStations() {
+  if (stations.value.some((s) => !s.name.trim()))
+    return toast.show(t('settings.stationNameRequired'), 'error')
+  await catalog.saveStations(stations.value.map((s) => ({ ...s, name: s.name.trim() })))
+  toast.show(t('settings.stationsSaved'), 'success')
+}
 
 onMounted(() => auth.loadStaff())
 
@@ -351,6 +371,41 @@ const confirmText = computed(() => ({
             {{ motionHelp }}
           </p>
         </div>
+      </div>
+    </section>
+
+    <section class="card space-y-4 p-5">
+      <div>
+        <h2 class="flex items-center gap-2 font-semibold">
+          <ChefHat class="size-4" /> {{ t('settings.stations') }}
+        </h2>
+        <p class="mt-1 text-sm text-ink-muted">{{ t('settings.stationsHelp') }}</p>
+      </div>
+      <ul class="space-y-2">
+        <li v-for="(st, i) in stations" :key="st.id || i" class="flex gap-2">
+          <input
+            v-model="st.name"
+            class="input"
+            maxlength="30"
+            :aria-label="t('settings.stationName')"
+          />
+          <button
+            class="btn btn-ghost btn-icon"
+            :aria-label="t('common.remove')"
+            @click="stations.splice(i, 1)"
+          >
+            <X class="size-4" />
+          </button>
+        </li>
+      </ul>
+      <div class="flex flex-wrap gap-2">
+        <button class="btn btn-outline btn-sm" @click="stations.push({ id: '', name: '' })">
+          <Plus class="size-4" /> {{ t('settings.addStation') }}
+        </button>
+        <span class="flex-1" />
+        <button class="btn btn-primary btn-sm" :disabled="!stationsDirty" @click="saveStations">
+          {{ t('settings.saveStations') }}
+        </button>
       </div>
     </section>
 

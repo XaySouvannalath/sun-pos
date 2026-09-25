@@ -3,7 +3,16 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { createDb, memoryAdapter, seedData } from '@/mock/db'
 import { createApi } from '@/mock/router'
 import { localDate } from '@/utils/rates'
-import type { CheckoutRequest, EffectiveRates, Order, Product, ShiftWithSummary } from '@/types'
+import type {
+  CheckoutRequest,
+  EffectiveRates,
+  FloorPlan,
+  HeldOrder,
+  KitchenTicket,
+  Order,
+  Product,
+  ShiftWithSummary,
+} from '@/types'
 
 let api: ReturnType<typeof createApi>
 let token: string | null = null
@@ -317,5 +326,107 @@ describe('exchange rates', () => {
     expect(res.body.payments.map((p) => p.guest)).toEqual([1, 2])
     expect(res.body.change).toBe(1.97)
     expect(call('POST', '/orders', sale({ splitWays: 1 })).status).toBe(400)
+  })
+})
+
+describe('tables and kitchen tickets', () => {
+  const RICE = 'prd-14' // Food → kitchen
+  const ICED = 'prd-5' // Coffee → bar, requires a Size
+  const held = (tableId: string, productId = CROISSANT) =>
+    call<HeldOrder>('POST', '/held-orders', {
+      label: '',
+      lines: [{ key: productId, productId, name: 'x', qty: 1, options: [] }],
+      tableId,
+    })
+
+  it('saves the floor plan, and keeps a table with an open bill', () => {
+    login()
+    const plan = call<FloorPlan>('GET', '/floor').body
+    expect(plan.tables.length).toBeGreaterThan(0)
+    const [first, second] = plan.tables
+    const dup = {
+      ...plan,
+      tables: plan.tables.map((t) => (t === second ? { ...t, name: first!.name } : t)),
+    }
+    expect(call('PUT', '/floor', dup).status).toBe(400)
+
+    // Moved off the plan's edge: kept inside it.
+    const moved = { ...plan, tables: plan.tables.map((t) => (t === first ? { ...t, x: 5000 } : t)) }
+    const saved = call<FloorPlan>('PUT', '/floor', moved).body
+    expect(saved.tables[0]!.x).toBe(1000 - first!.w)
+
+    expect(held(first!.id).status).toBe(201)
+    const without = { ...plan, tables: plan.tables.slice(1) }
+    expect(call('PUT', '/floor', without).body).toMatchObject({ error: { code: 'TABLE_IN_USE' } })
+  })
+
+  it('allows one bill per table; bills can move and merge', () => {
+    login()
+    const [a, b] = call<FloorPlan>('GET', '/floor').body.tables
+    const billA = held(a!.id).body
+    expect(held(a!.id).body).toMatchObject({ error: { code: 'TABLE_BUSY' } })
+    const billB = held(b!.id).body
+    expect(call('POST', `/held-orders/${billA.id}/move`, { tableId: b!.id }).status).toBe(409)
+
+    const merged = call<HeldOrder>('POST', `/held-orders/${billB.id}/merge`, { ids: [billA.id] })
+    expect(merged.body.lines[0]!.qty).toBe(2)
+    expect(call<HeldOrder[]>('GET', '/held-orders').body).toHaveLength(1)
+    call('POST', '/tickets', { tableId: b!.id, lines: [{ productId: RICE, qty: 1 }] })
+    const moved = call<HeldOrder>('POST', `/held-orders/${billB.id}/move`, { tableId: a!.id })
+    expect(moved.body).toMatchObject({ tableId: a!.id, table: a!.name })
+    // The kitchen's ticket moved with the bill.
+    expect(call<KitchenTicket[]>('GET', '/tickets').body[0]).toMatchObject({ tableId: a!.id })
+  })
+
+  it('sends one ticket per station and only for items that need making', () => {
+    login()
+    const res = call<KitchenTicket[]>('POST', '/tickets', {
+      label: 'Table 1',
+      lines: [
+        { productId: RICE, qty: 2, options: ['Fried egg'], note: 'no chilli' },
+        { productId: ICED, qty: 1, options: ['Large'], note: '' },
+        { productId: CROISSANT, qty: 1, options: [], note: '' },
+      ],
+    })
+    expect(res.status).toBe(201)
+    expect(res.body.map((t) => t.stationId).sort()).toEqual(['bar', 'kitchen'])
+    const rice = res.body.find((t) => t.stationId === 'kitchen')!
+    expect(rice.items).toMatchObject([{ qty: 2, options: ['Fried egg'], note: 'no chilli' }])
+
+    call('PATCH', `/tickets/${rice.id}`, { item: 0, done: true })
+    call('PATCH', `/tickets/${rice.id}`, { status: 'done' })
+    const active = call<KitchenTicket[]>('GET', '/tickets').body
+    expect(active.map((t) => t.stationId)).toEqual(['bar'])
+    const done = call<KitchenTicket[]>('GET', '/tickets', null, { status: 'done' }).body
+    expect(done[0]).toMatchObject({ id: rice.id, items: [{ done: true }] })
+  })
+
+  it('tickets unsent items on payment and closes the table bill', () => {
+    login()
+    call('POST', '/shifts', { openingFloat: 0 })
+    const table = call<FloorPlan>('GET', '/floor').body.tables[0]!
+    const bill = held(table.id, RICE).body
+    const res = call<Order>(
+      'POST',
+      '/orders',
+      sale({
+        tableId: table.id,
+        heldId: bill.id,
+        lines: [
+          { productId: RICE, qty: 3, options: [], note: '', discountPct: 0, sentQty: 1 },
+          { productId: CROISSANT, qty: 1, options: [], note: '', discountPct: 0 },
+        ],
+        voids: [{ productId: RICE, qty: 1, options: [], note: '' }],
+        payments: [{ method: 'cash', amount: 100 }],
+      }),
+    )
+    expect(res.status).toBe(201)
+    expect(res.body).toMatchObject({ tableId: table.id, table: table.name })
+    expect(call<HeldOrder[]>('GET', '/held-orders').body).toHaveLength(0)
+    const [ticket] = call<KitchenTicket[]>('GET', '/tickets').body
+    expect(ticket!.items).toMatchObject([
+      { qty: 2, cancelled: false },
+      { qty: 1, cancelled: true },
+    ])
   })
 })

@@ -1,0 +1,256 @@
+{
+  "areas": [
+    {
+      "id": "area-in",
+      "name": "Indoor"
+    },
+    {
+      "id": "area-out",
+      "name": "Terrace"
+    }
+  ],
+  "tables": [
+    {
+      "id": "tbl-1",
+      "name": "1",
+      "areaId": "area-in",
+      "seats": 4,
+      "shape": "square",
+      "x": 60,
+      "y": 60,
+      "w": 120,
+      "h": 120
+    },
+    {
+      "id": "tbl-2",
+      "name": "2",
+      "areaId": "area-in",
+      "seats": 4,
+      "shape": "square",
+      "x": 240,
+      "y": 60,
+      "w": 120,
+      "h": 120
+    },
+    {
+      "id": "tbl-3",
+      "name": "3",
+      "areaId": "area-in",
+      "seats": 4,
+      "shape": "square",
+      "x": 420,
+      "y": 60,
+      "w": 120,
+      "h": 120
+    },
+    {
+      "id": "tbl-4",
+      "name": "4",
+      "areaId": "area-in",
+      "seats": 4,
+      "shape": "square",
+      "x": 600,
+      "y": 60,
+      "w": 120,
+      "h": 120
+    },
+    {
+      "id": "tbl-5",
+      "name": "5",
+      "areaId": "area-in",
+      "seats": 2,
+      "shape": "round",
+      "x": 60,
+      "y": 250,
+      "w": 120,
+      "h": 120
+    },
+    {
+      "id": "tbl-6",
+      "name": "6",
+      "areaId": "area-in",
+      "seats": 2,
+      "shape": "round",
+      "x": 240,
+      "y": 250,
+      "w": 120,
+      "h": 120
+    },
+    {
+      "id": "tbl-7",
+      "name": "7",
+      "areaId": "area-in",
+      "seats": 2,
+      "shape": "round",
+      "x": 420,
+      "y": 250,
+      "w": 120,
+      "h": 120
+    },
+    {
+      "id": "tbl-8",
+      "name": "8",
+      "areaId": "area-in",
+      "seats": 2,
+      "shape": "round",
+      "x": 600,
+      "y": 250,
+      "w": 120,
+      "h": 120
+    },
+    {
+      "id": "tbl-9",
+      "name": "9",
+      "areaId": "area-in",
+      "seats": 8,
+      "shape": "rect",
+      "x": 60,
+      "y": 450,
+      "w": 300,
+      "h": 120
+    },
+    {
+      "id": "tbl-10",
+      "name": "10",
+      "areaId": "area-in",
+      "seats": 6,
+      "shape": "rect",
+      "x": 420,
+      "y": 450,
+      "w": 300,
+      "h": 120
+    },
+    {
+      "id": "tbl-11",
+      "name": "B1",
+      "areaId": "area-in",
+      "seats": 2,
+      "shape": "round",
+      "x": 800,
+      "y": 60,
+      "w": 100,
+      "h": 100
+    },
+    {
+      "id": "tbl-12",
+      "name": "B2",
+      "areaId": "area-in",
+      "seats": 2,
+      "shape": "round",
+      "x": 800,
+      "y": 190,
+      "w": 100,
+      "h": 100
+    },
+    {
+      "id": "tbl-13",
+      "name": "B3",
+      "areaId": "area-in",
+      "seats": 2,
+      "shape": "round",
+      "x": 800,
+      "y": 320,
+      "w": 100,
+      "h": 100
+    },
+    {
+      "id": "tbl-14",
+      "name": "B4",
+      "areaId": "area-in",
+      "seats": 2,
+      "shape": "round",
+      "x": 800,
+      "y": 450,
+      "w": 100,
+      "h": 100
+    },
+    {
+      "id": "tbl-15",
+      "name": "T1",
+      "areaId": "area-out",
+      "seats": 4,
+      "shape": "round",
+      "x": 80,
+      "y": 80,
+      "w": 140,
+      "h": 140
+    },
+    {
+      "id": "tbl-16",
+      "name": "T2",
+      "areaId": "area-out",
+      "seats": 4,
+      "shape": "round",
+      "x": 300,
+      "y": 80,
+      "w": 140,
+      "h": 140
+    },
+    {
+      "id": "tbl-17",
+      "name": "T3",
+      "areaId": "area-out",
+      "seats": 4,
+      "shape": "round",
+      "x": 520,
+      "y": 80,
+      "w": 140,
+      "h": 140
+    },
+    {
+      "id": "tbl-18",
+      "name": "T4",
+      "areaId": "area-out",
+      "seats": 4,
+      "shape": "round",
+      "x": 740,
+      "y": 80,
+      "w": 140,
+      "h": 140
+    },
+    {
+      "id": "tbl-19",
+      "name": "T5",
+      "areaId": "area-out",
+      "seats": 4,
+      "shape": "square",
+      "x": 80,
+      "y": 340,
+      "w": 140,
+      "h": 140
+    },
+    {
+      "id": "tbl-20",
+      "name": "T6",
+      "areaId": "area-out",
+      "seats": 4,
+      "shape": "square",
+      "x": 300,
+      "y": 340,
+      "w": 140,
+      "h": 140
+    },
+    {
+      "id": "tbl-21",
+      "name": "T7",
+      "areaId": "area-out",
+      "seats": 4,
+      "shape": "square",
+      "x": 520,
+      "y": 340,
+      "w": 140,
+      "h": 140
+    },
+    {
+      "id": "tbl-22",
+      "name": "T8",
+      "areaId": "area-out",
+      "seats": 6,
+      "shape": "rect",
+      "x": 740,
+      "y": 340,
+      "w": 180,
+      "h": 240
+    }
+  ]
+}

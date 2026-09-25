@@ -7,6 +7,7 @@ import { useShiftStore } from './shift'
 import { useOrdersStore } from './orders'
 import { useSettingsStore } from './settings'
 import { useRatesStore } from './rates'
+import { useFloorStore } from './floor'
 
 /** Loads everything the tills need after sign-in. */
 export const useAppStore = defineStore('app', () => {
@@ -19,6 +20,7 @@ export const useAppStore = defineStore('app', () => {
       useCustomersStore().load(),
       useCartStore().loadHeld(),
       useShiftStore().load(),
+      useFloorStore().load(),
     ])
     // Rates depend on the store currency, so they load after the settings.
     await Promise.all([useOrdersStore().loadTopSellers(), useRatesStore().load()])

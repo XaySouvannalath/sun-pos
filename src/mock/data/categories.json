@@ -2,31 +2,37 @@
   {
     "id": "cat-coffee",
     "name": "Coffee",
-    "tint": "sand"
+    "tint": "sand",
+    "stationId": "bar"
   },
   {
     "id": "cat-tea",
     "name": "Tea",
-    "tint": "sage"
+    "tint": "sage",
+    "stationId": "bar"
   },
   {
     "id": "cat-smoothie",
     "name": "Smoothies",
-    "tint": "rose"
+    "tint": "rose",
+    "stationId": "bar"
   },
   {
     "id": "cat-food",
     "name": "Food",
-    "tint": "amber"
+    "tint": "amber",
+    "stationId": "kitchen"
   },
   {
     "id": "cat-bakery",
     "name": "Bakery",
-    "tint": "lilac"
+    "tint": "lilac",
+    "stationId": null
   },
   {
     "id": "cat-dessert",
     "name": "Desserts",
-    "tint": "sky"
+    "tint": "sky",
+    "stationId": "kitchen"
   }
 ]

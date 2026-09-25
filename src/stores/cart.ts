@@ -3,7 +3,7 @@ import { defineStore } from 'pinia'
 import { api } from '@/api'
 import { persisted } from '@/composables/persisted'
 import { t } from '@/i18n'
-import { clone, computeTotals, lineKey, uid } from '@/utils/pos'
+import { clone, computeTotals, lineKey, mergeDiscounts, mergeLines, uid } from '@/utils/pos'
 import { useSettingsStore } from './settings'
 import { useOrdersStore } from './orders'
 import { useCatalogStore } from './catalog'
@@ -12,6 +12,9 @@ import { useCustomersStore } from './customers'
 import type {
   Discount,
   HeldOrder,
+  HeldOrderInput,
+  KitchenTicket,
+  TicketLineInput,
   Order,
   OrderLine,
   OrderType,
@@ -25,8 +28,14 @@ interface CartState {
   discount: Discount
   orderType: OrderType
   table: string
+  /** The table on the floor plan, if any (`table` holds its name). */
+  tableId?: string | null
   note: string
   customerId: string | null
+  /** The saved bill this order was opened from; saving or paying updates that bill. */
+  heldId?: string | null
+  /** Items removed after being sent, to report to the kitchen as cancelled. */
+  voids?: OrderLine[]
   /** Order id reused if a checkout is retried, so the customer is never charged twice. */
   pendingId?: string | null
   /** What `pendingId` was for: a different order or selection gets a new id. */
@@ -56,8 +65,11 @@ const emptyCart = (): CartState => ({
   discount: { type: 'percent', value: 0 },
   orderType: 'dine-in',
   table: '',
+  tableId: null,
   note: '',
   customerId: null,
+  heldId: null,
+  voids: [],
   pendingId: null,
   pendingSig: null,
 })
@@ -131,67 +143,179 @@ export const useCartStore = defineStore('cart', () => {
     })
   }
 
+  /** Taking away items the kitchen already has: remember them, so the kitchen is told. */
+  function voidSent(l: OrderLine, newQty: number) {
+    const sent = l.sentQty ?? 0
+    if (sent <= newQty) return
+    ;(state.value.voids ??= []).push({ ...clone(l), qty: sent - newQty, sentQty: 0 })
+    l.sentQty = newQty
+  }
+
   function setQty(index: number, qty: number) {
     const l = state.value.lines[index]
     if (!l) return
+    voidSent(l, Math.max(qty, 0))
     if (qty <= 0) state.value.lines.splice(index, 1)
     else l.qty = qty
   }
 
   function remove(index: number) {
-    state.value.lines.splice(index, 1)
+    setQty(index, 0)
   }
 
+  /** Empties the screen (the order itself is kept if it was saved as a bill). */
   function clear() {
     state.value = emptyCart()
   }
+
+  /** "Clear order": throws the order away, including its saved bill. */
+  async function discard() {
+    const id = state.value.heldId
+    if (id) {
+      await api.held.remove(id).catch(() => null)
+      held.value = held.value.filter((x) => x.id !== id)
+    }
+    clear()
+  }
+
+  const catalog = useCatalogStore()
+  /** Whether a product's category is prepared at a station (kitchen, bar…). */
+  const hasStation = (categoryId: string) => !!catalog.categoryById.get(categoryId)?.stationId
+
+  const unsentLines = computed(() =>
+    state.value.lines.filter((l) => l.qty > (l.sentQty ?? 0) && hasStation(l.categoryId)),
+  )
+  /** Items (or cancellations) the kitchen and bar don't know about yet. */
+  const hasUnsent = computed(
+    () =>
+      unsentLines.value.length > 0 ||
+      (state.value.voids ?? []).some((v) => hasStation(v.categoryId)),
+  )
+
+  const ticketLine = (l: OrderLine, qty: number, cancelled = false): TicketLineInput => ({
+    productId: l.productId,
+    qty,
+    options: l.options.map((o) => o.name),
+    note: l.note,
+    cancelled,
+  })
+
+  /** Bills waiting on the server, other than the one on screen. */
+  const waiting = computed(() => held.value.filter((h) => h.id !== state.value.heldId))
+  const heldForTable = (tableId: string) => held.value.find((h) => h.tableId === tableId)
 
   async function loadHeld() {
     held.value = await api.held.list()
   }
 
-  async function hold(label: string) {
+  function heldInput(label: string): HeldOrderInput {
+    const c = clone(state.value)
+    return {
+      label,
+      lines: c.lines,
+      discount: c.discount,
+      orderType: c.orderType,
+      table: c.table,
+      tableId: c.tableId ?? null,
+      note: c.note,
+      customerId: c.customerId,
+      voids: c.voids ?? [],
+    }
+  }
+
+  function upsertHeld(h: HeldOrder) {
+    const i = held.value.findIndex((x) => x.id === h.id)
+    if (i >= 0) held.value[i] = h
+    else held.value.unshift(h)
+  }
+
+  /** Saves the order as a bill on the server (updating its bill if it has one) and clears the screen. */
+  async function hold(label = '') {
     if (isEmpty.value) return
-    const { lines, discount, orderType, table, note, customerId } = clone(state.value)
-    const h = await api.held.create({
-      label: label || t('cart.orderN', { n: held.value.length + 1 }),
-      lines,
-      discount,
-      orderType,
-      table,
-      note,
-      customerId,
-    })
-    held.value.unshift(h)
+    const c = state.value
+    const name =
+      label ||
+      (c.table
+        ? t('cart.tableN', { n: c.table })
+        : t('cart.orderN', { n: waiting.value.length + 1 }))
+    const h = c.heldId
+      ? await api.held.update(c.heldId, heldInput(name))
+      : await api.held.create(heldInput(name))
+    upsertHeld(h)
     clear()
   }
 
-  async function resume(id: string) {
-    // Park whatever is on screen so nothing is lost when switching orders.
-    if (!isEmpty.value)
-      await hold(state.value.table ? t('cart.tableN', { n: state.value.table }) : '')
-    const h = await api.held.remove(id)
-    held.value = held.value.filter((x) => x.id !== id)
+  function load(h: HeldOrder) {
     state.value = {
-      lines: h.lines,
+      lines: clone(h.lines),
       discount: h.discount,
       orderType: h.orderType,
       table: h.table,
+      tableId: h.tableId,
       note: h.note,
       customerId: h.customerId,
+      heldId: h.id,
+      voids: clone(h.voids ?? []),
       pendingId: null,
       pendingSig: null,
     }
   }
 
-  /** Adds a line from another bill, combining it with an identical plain line. */
-  function addLine(line: OrderLine) {
-    const plain = (l: OrderLine) => !l.note && !l.discountPct
-    const same = plain(line)
-      ? state.value.lines.find((l) => l.key === line.key && plain(l))
-      : undefined
-    if (same) same.qty += line.qty
-    else state.value.lines.push({ ...line, id: uid() })
+  /** Opens a saved bill. The order on screen is saved first, so nothing is lost. */
+  async function resume(id: string) {
+    if (state.value.heldId === id) return
+    if (!isEmpty.value) await hold()
+    await loadHeld()
+    const h = held.value.find((x) => x.id === id)
+    if (!h) throw new Error(t('tables.billGone'))
+    load(h)
+  }
+
+  /** Floor plan: opens the table's bill, or starts a new order for it. */
+  async function openTable(table: { id: string; name: string }) {
+    const bill = heldForTable(table.id)
+    if (bill) return resume(bill.id)
+    if (state.value.tableId === table.id) return
+    if (!isEmpty.value) await hold()
+    clear()
+    Object.assign(state.value, { tableId: table.id, table: table.name, orderType: 'dine-in' })
+  }
+
+  /** Puts the order on screen at a table (or takes it off tables with null). */
+  function setTable(table: { id: string; name: string } | null) {
+    const c = state.value
+    c.tableId = table?.id ?? null
+    c.table = table?.name ?? ''
+    if (table) c.orderType = 'dine-in'
+  }
+
+  /**
+   * Sends new items (and cancellations) to the kitchen and bar. A table's order is then saved
+   * to its table and the screen cleared, ready for the next table.
+   */
+  async function send(): Promise<{ tickets: KitchenTicket[]; parked: boolean }> {
+    const c = state.value
+    const lines = [
+      ...c.lines
+        .filter((l) => l.qty > (l.sentQty ?? 0))
+        .map((l) => ticketLine(l, l.qty - (l.sentQty ?? 0))),
+      ...(c.voids ?? []).map((v) => ticketLine(v, v.qty, true)),
+    ]
+    const tickets = lines.length
+      ? await api.tickets.create({
+          label: c.table ? t('cart.tableN', { n: c.table }) : '',
+          orderType: c.orderType,
+          table: c.table,
+          tableId: c.tableId ?? null,
+          note: c.note,
+          lines,
+        })
+      : []
+    for (const l of c.lines) l.sentQty = l.qty
+    c.voids = []
+    const parked = !!(c.tableId || c.heldId)
+    if (parked) await hold()
+    return { tickets, parked }
   }
 
   /**
@@ -203,24 +327,29 @@ export const useCartStore = defineStore('cart', () => {
     const c = state.value
     const tables = c.table ? [c.table] : []
     const notes = c.note ? [c.note] : []
-    const discounts = !isEmpty.value && c.discount.value > 0 ? [c.discount] : []
+    const discounts = isEmpty.value ? [] : [c.discount]
     const startedEmpty = isEmpty.value
     for (const [i, id] of ids.entries()) {
       const h = await api.held.remove(id)
       held.value = held.value.filter((x) => x.id !== id)
-      for (const l of h.lines) addLine(l)
+      c.lines = mergeLines(c.lines, h.lines)
+      c.voids = [...(c.voids ?? []), ...(h.voids ?? [])]
       if (h.table && !tables.includes(h.table)) tables.push(h.table)
       if (h.note) notes.push(h.note)
-      if (h.discount.value > 0) discounts.push(h.discount)
+      discounts.push(h.discount)
       c.customerId ??= h.customerId
-      if (startedEmpty && i === 0) c.orderType = h.orderType
-      c.table = tables.join(' + ').slice(0, 20)
+      if (startedEmpty && i === 0) {
+        c.orderType = h.orderType
+        c.tableId = h.tableId
+      }
+      c.table = c.tableId ? c.table || h.table : tables.join(' + ').slice(0, 20)
       c.note = notes.join(' · ').slice(0, 500)
-      c.discount =
-        discounts.every((d) => d.type === 'amount') && discounts.length
-          ? { type: 'amount', value: settings.round(discounts.reduce((s, d) => s + d.value, 0)) }
-          : (discounts[0] ?? { type: 'percent', value: 0 })
+      const d = mergeDiscounts(discounts)
+      c.discount = d.type === 'amount' ? { ...d, value: settings.round(d.value) } : d
     }
+    // Keep the saved bill in step, so the merged items are on the server too.
+    if (c.heldId)
+      upsertHeld(await api.held.update(c.heldId, heldInput(t('cart.tableN', { n: c.table }))))
   }
 
   async function discardHeld(id: string) {
@@ -232,9 +361,14 @@ export const useCartStore = defineStore('cart', () => {
   async function checkout(payments: Payment[], opts: CheckoutOptions = {}): Promise<Order> {
     const c = state.value
     const part = portion(opts.selection)
+    // Paying for part of a saved bill leaves the bill open for the rest.
+    const all = !opts.selection || c.lines.every((l) => (opts.selection![l.id!] ?? 0) >= l.qty)
     const body = {
       orderType: c.orderType,
       table: c.table,
+      tableId: c.tableId ?? null,
+      heldId: all ? (c.heldId ?? null) : null,
+      voids: (c.voids ?? []).map((v) => ticketLine(v, v.qty, true)),
       note: c.note,
       customerId: c.customerId,
       orderDiscount: part.discount,
@@ -244,6 +378,7 @@ export const useCartStore = defineStore('cart', () => {
         options: l.options.map((o) => ({ group: o.group, name: o.name })),
         note: l.note,
         discountPct: l.discountPct,
+        sentQty: Math.min(l.sentQty ?? 0, l.qty),
       })),
       splitWays: opts.splitWays,
     }
@@ -258,8 +393,13 @@ export const useCartStore = defineStore('cart', () => {
       // Split by items: keep what hasn't been paid for yet.
       const sel = opts.selection
       c.lines = c.lines
-        .map((l) => ({ ...l, qty: l.qty - Math.min(sel[l.id!] ?? 0, l.qty) }))
+        .map((l) => {
+          const paid = Math.min(sel[l.id!] ?? 0, l.qty)
+          const sentPaid = Math.min(l.sentQty ?? 0, paid)
+          return { ...l, qty: l.qty - paid, sentQty: (l.sentQty ?? 0) - sentPaid }
+        })
         .filter((l) => l.qty > 0)
+      c.voids = []
       if (c.discount.type === 'amount')
         c.discount = {
           type: 'amount',
@@ -268,7 +408,12 @@ export const useCartStore = defineStore('cart', () => {
       c.pendingId = null
       c.pendingSig = null
       if (!c.lines.length) clear()
-    } else clear()
+      else if (c.heldId)
+        upsertHeld(await api.held.update(c.heldId, heldInput(t('cart.tableN', { n: c.table }))))
+    } else {
+      if (body.heldId) held.value = held.value.filter((x) => x.id !== body.heldId)
+      clear()
+    }
     // Stock, the drawer, top sellers and loyalty points changed on the server.
     void Promise.allSettled([
       useCatalogStore().refreshProducts(),
@@ -291,6 +436,15 @@ export const useCartStore = defineStore('cart', () => {
     loadHeld,
     hold,
     resume,
+    openTable,
+    setTable,
+    send,
+    discard,
+    hasUnsent,
+    unsentLines,
+    hasStation,
+    waiting,
+    heldForTable,
     discardHeld,
     mergeHeld,
     portion,

@@ -15,6 +15,8 @@ import {
   Sun,
   Moon,
   ArrowRightLeft,
+  LayoutGrid,
+  ChefHat,
 } from 'lucide-vue-next'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
@@ -29,6 +31,8 @@ const router = useRouter()
 const links = computed(() =>
   [
     { to: '/', label: t('nav.sell'), icon: ShoppingCart },
+    { to: '/tables', label: t('nav.tables'), icon: LayoutGrid },
+    { to: '/kitchen', label: t('nav.kitchen'), icon: ChefHat },
     { to: '/orders', label: t('nav.orders'), icon: Receipt },
     { to: '/shift', label: t('nav.shift'), icon: Wallet },
     { to: '/customers', label: t('nav.customers'), icon: Users },

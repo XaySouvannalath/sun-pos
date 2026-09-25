@@ -41,11 +41,11 @@ const margin = (p: Product) => (p.price > 0 ? Math.round(((p.price - p.cost) / p
 
 // Categories
 const catOpen = ref(false)
-const catForm = ref<Category>({ id: '', name: '', tint: 'sage' })
+const catForm = ref<Category>({ id: '', name: '', tint: 'sage', stationId: null })
 const catError = ref('')
 
 function editCat(c: Category | null) {
-  catForm.value = c ? { ...c } : { id: '', name: '', tint: 'sage' }
+  catForm.value = c ? { ...c } : { id: '', name: '', tint: 'sage', stationId: null }
   catError.value = ''
   catOpen.value = true
 }
@@ -236,6 +236,16 @@ const countIn = (id: string) => catalog.products.filter((p) => p.categoryId === 
               @click="catForm.tint = tint"
             />
           </div>
+        </div>
+        <div>
+          <label class="label" for="cat-station">{{ t('kitchen.sendTo') }}</label>
+          <select id="cat-station" v-model="catForm.stationId" class="input">
+            <option :value="null">{{ t('kitchen.noTicket') }}</option>
+            <option v-for="st in catalog.stations" :key="st.id" :value="st.id">
+              {{ st.name }}
+            </option>
+          </select>
+          <p class="mt-1 text-xs text-ink-muted">{{ t('kitchen.sendToHelp') }}</p>
         </div>
         <p v-if="catError" class="text-sm text-danger">{{ catError }}</p>
       </div>

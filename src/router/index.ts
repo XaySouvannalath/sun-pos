@@ -19,6 +19,18 @@ const router = createRouter({
       meta: { public: true },
     },
     {
+      path: '/tables',
+      name: 'tables',
+      component: () => import('@/views/TablesView.vue'),
+      meta: { title: 'tables.title' },
+    },
+    {
+      path: '/kitchen',
+      name: 'kitchen',
+      component: () => import('@/views/KitchenView.vue'),
+      meta: { title: 'kitchen.title' },
+    },
+    {
       path: '/orders',
       name: 'orders',
       component: () => import('@/views/OrdersView.vue'),

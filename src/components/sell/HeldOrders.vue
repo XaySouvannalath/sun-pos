@@ -7,6 +7,7 @@ import { useCartStore } from '@/stores/cart'
 import { useSettingsStore } from '@/stores/settings'
 import { useToastStore } from '@/stores/toast'
 import { computeTotals } from '@/utils/pos'
+import type { HeldOrder } from '@/types'
 
 const open = defineModel<boolean>({ required: true })
 const cart = useCartStore()
@@ -24,7 +25,9 @@ watch(open, () => {
 })
 
 // Merging needs two bills: the current order plus one held, or two held.
-const canMerge = computed(() => cart.held.length >= (cart.isEmpty ? 2 : 1))
+const canMerge = computed(() => cart.waiting.length >= (cart.isEmpty ? 2 : 1))
+const onScreen = (id: string) => id === cart.state.heldId
+const title = (h: HeldOrder) => (h.tableId ? t('cart.tableN', { n: h.table }) : h.label)
 const enough = computed(() => picked.value.length >= (cart.isEmpty ? 2 : 1))
 
 function togglePick(id: string) {
@@ -43,7 +46,7 @@ async function merge() {
   busy.value = true
   try {
     // Oldest first, so tables read in the order the bills were opened ("5 + 6").
-    const ids = [...cart.held]
+    const ids = [...cart.waiting]
       .reverse()
       .filter((h) => picked.value.includes(h.id))
       .map((h) => h.id)
@@ -69,14 +72,14 @@ async function merge() {
         :class="merging && picked.includes(h.id) && 'border-primary bg-primary-soft'"
       >
         <button
-          v-if="merging"
+          v-if="merging && !onScreen(h.id)"
           class="grid size-6 shrink-0 place-items-center rounded-md border-2"
           :class="
             picked.includes(h.id) ? 'border-primary bg-primary text-primary-ink' : 'border-line'
           "
           role="checkbox"
           :aria-checked="picked.includes(h.id)"
-          :aria-label="h.label"
+          :aria-label="title(h)"
           @click="togglePick(h.id)"
         >
           <Check v-if="picked.includes(h.id)" class="size-4" />
@@ -84,9 +87,14 @@ async function merge() {
         <component
           :is="merging ? 'button' : 'div'"
           class="min-w-0 flex-1 text-left"
-          @click="merging && togglePick(h.id)"
+          @click="merging && !onScreen(h.id) && togglePick(h.id)"
         >
-          <p class="font-semibold">{{ h.label }}</p>
+          <p class="font-semibold">
+            {{ title(h) }}
+            <span v-if="onScreen(h.id)" class="badge ml-1 bg-primary-soft text-primary">{{
+              t('held.onScreen')
+            }}</span>
+          </p>
           <p class="truncate text-xs text-ink-muted">
             {{ fmtTime(h.heldAt) }} ·
             {{ t('common.items', { n: h.lines.reduce((s, l) => s + l.qty, 0) }) }} ·
@@ -96,7 +104,7 @@ async function merge() {
         <span class="font-bold">{{
           settings.money(computeTotals(h.lines, h.discount, settings.s).total)
         }}</span>
-        <template v-if="!merging">
+        <template v-if="!merging && !onScreen(h.id)">
           <button
             class="btn btn-ghost btn-sm btn-icon"
             :aria-label="t('held.discard')"

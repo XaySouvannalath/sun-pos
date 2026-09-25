@@ -9,6 +9,11 @@ import type {
   CustomerInput,
   EffectiveRates,
   ExchangeRateSet,
+  FloorPlan,
+  KitchenTicket,
+  Station,
+  TicketRequest,
+  TicketStatus,
   HeldOrder,
   ImportKind,
   ImportRequest,
@@ -74,6 +79,27 @@ export const api = {
     remove: (date: string) => request<null>('DELETE', `/exchange-rates/${enc(date)}`),
   },
 
+  floor: {
+    get: () => request<FloorPlan>('GET', '/floor'),
+    save: (body: FloorPlan) => request<FloorPlan>('PUT', '/floor', { body }),
+  },
+
+  stations: {
+    list: () => request<Station[]>('GET', '/stations'),
+    save: (stations: Partial<Station>[]) =>
+      request<Station[]>('PUT', '/stations', { body: { stations } }),
+  },
+
+  tickets: {
+    /** Sends items to the kitchen and bar: one ticket per station (none if nothing needs making). */
+    create: (body: TicketRequest) => request<KitchenTicket[]>('POST', '/tickets', { body }),
+    /** Open tickets, oldest first; or recently finished ones (`status: 'done'`), newest first. */
+    list: (query: { status?: 'active' | 'done'; stationId?: string; limit?: number } = {}) =>
+      request<KitchenTicket[]>('GET', '/tickets', { query }),
+    update: (id: string, body: { status?: TicketStatus; item?: number; done?: boolean }) =>
+      request<KitchenTicket>('PATCH', `/tickets/${enc(id)}`, { body }),
+  },
+
   categories: {
     list: () => request<Category[]>('GET', '/categories'),
     create: (body: Omit<Category, 'id'>) => request<Category>('POST', '/categories', { body }),
@@ -122,7 +148,16 @@ export const api = {
   held: {
     list: () => request<HeldOrder[]>('GET', '/held-orders'),
     create: (body: HeldOrderInput) => request<HeldOrder>('POST', '/held-orders', { body }),
-    /** Removes a held order and returns it (used for both resume and discard). */
+    /** Replaces a held order's contents (saving a table's bill again). */
+    update: (id: string, body: HeldOrderInput) =>
+      request<HeldOrder>('PUT', `/held-orders/${enc(id)}`, { body }),
+    /** Moves a bill to another table (or off tables, with null). */
+    move: (id: string, tableId: string | null) =>
+      request<HeldOrder>('POST', `/held-orders/${enc(id)}/move`, { body: { tableId } }),
+    /** Merges other held orders into this one; they are removed. */
+    merge: (id: string, ids: string[]) =>
+      request<HeldOrder>('POST', `/held-orders/${enc(id)}/merge`, { body: { ids } }),
+    /** Removes a held order and returns it. */
     remove: (id: string) => request<HeldOrder>('DELETE', `/held-orders/${enc(id)}`),
   },
 

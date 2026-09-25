@@ -13,6 +13,8 @@ export interface Category {
   id: string
   name: string
   tint: Tint
+  /** Where this category's items are prepared (kitchen, bar…), or null for no ticket. */
+  stationId: string | null
 }
 
 export interface OptionChoice {
@@ -65,6 +67,8 @@ export interface OrderLine {
   options: SelectedOption[]
   note: string
   discountPct: number
+  /** How many of `qty` have already been sent to the kitchen or bar. */
+  sentQty?: number
 }
 
 export type DiscountType = 'percent' | 'amount'
@@ -109,6 +113,7 @@ export interface Order extends Totals {
   orderDiscount: Discount
   orderType: OrderType
   table: string
+  tableId?: string | null
   note: string
   customerId: string | null
   payments: Payment[]
@@ -134,8 +139,96 @@ export interface HeldOrder {
   discount: Discount
   orderType: OrderType
   table: string
+  /** The table on the floor plan, when the order belongs to one. */
+  tableId: string | null
   note: string
   customerId: string | null
+  /** Items removed after they were sent, still to be reported to the kitchen as cancelled. */
+  voids: OrderLine[]
+  updatedAt: number
+}
+
+// ----- Floor plan -----
+
+export type TableShape = 'square' | 'round' | 'rect'
+
+export interface FloorArea {
+  id: string
+  name: string
+}
+
+/** A table on the floor plan. Position and size are in plan units (the plan is 1000 × 640). */
+export interface DiningTable {
+  id: string
+  name: string
+  areaId: string
+  seats: number
+  shape: TableShape
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+export interface FloorPlan {
+  areas: FloorArea[]
+  tables: DiningTable[]
+}
+
+// ----- Kitchen and bar -----
+
+export interface Station {
+  id: string
+  name: string
+}
+
+export type TicketStatus = 'new' | 'preparing' | 'ready' | 'done'
+
+export interface TicketItem {
+  name: string
+  emoji: string
+  qty: number
+  options: string[]
+  note: string
+  /** A cancelled item: the kitchen should stop making it. */
+  cancelled: boolean
+  /** Ticked off by the kitchen. */
+  done: boolean
+}
+
+export interface KitchenTicket {
+  id: string
+  number: number
+  stationId: string
+  createdAt: number
+  status: TicketStatus
+  /** When it last changed status. */
+  statusAt: number
+  label: string
+  orderType: OrderType
+  table: string
+  tableId: string | null
+  note: string
+  staffName: string
+  items: TicketItem[]
+}
+
+/** An item to send: the product, how many, and its options by name. */
+export interface TicketLineInput {
+  productId: string
+  qty: number
+  options: string[]
+  note: string
+  cancelled?: boolean
+}
+
+export interface TicketRequest {
+  label: string
+  orderType: OrderType
+  table: string
+  tableId: string | null
+  note: string
+  lines: TicketLineInput[]
 }
 
 export interface Customer {
@@ -264,6 +357,8 @@ export interface CheckoutLine {
   options: { group: string; name: string }[]
   note: string
   discountPct: number
+  /** Already sent to the kitchen; only the rest gets a ticket. */
+  sentQty?: number
 }
 
 export interface CheckoutRequest {
@@ -278,9 +373,14 @@ export interface CheckoutRequest {
   payments: Payment[]
   /** Split equally: this payment is one guest's share of a bill shared by this many guests. */
   splitWays?: number
+  tableId?: string | null
+  /** The held (table) order this sale pays for; it is closed with the sale. */
+  heldId?: string | null
+  /** Cancelled items not yet reported to the kitchen. */
+  voids?: TicketLineInput[]
 }
 
-export type HeldOrderInput = Omit<HeldOrder, 'id' | 'heldAt'>
+export type HeldOrderInput = Omit<HeldOrder, 'id' | 'heldAt' | 'updatedAt'>
 
 export type CustomerInput = Pick<Customer, 'name' | 'phone' | 'email' | 'note'>
 
@@ -370,6 +470,9 @@ export interface DbData {
   shifts: Shift[]
   held: HeldOrder[]
   exchangeRates: ExchangeRateSet[]
+  floor: FloorPlan
+  stations: Station[]
+  tickets: KitchenTicket[]
 }
 
 export interface BackupFile {

@@ -9,6 +9,8 @@ import products from './data/products.json' with { type: 'json' }
 import customers from './data/customers.json' with { type: 'json' }
 import orders from './data/orders.json' with { type: 'json' }
 import rates from './data/exchange-rates.json' with { type: 'json' }
+import floor from './data/floor.json' with { type: 'json' }
+import stations from './data/stations.json' with { type: 'json' }
 
 /** Where the database is saved between requests (a JSON file, or browser storage). */
 export interface DbAdapter {
@@ -87,6 +89,9 @@ export function seedData(now = Date.now()): DbData {
     shifts: [],
     held: [],
     exchangeRates: demoRates(now),
+    floor: clone(floor) as DbData['floor'],
+    stations: clone(stations) as DbData['stations'],
+    tickets: [],
   }
 }
 
@@ -94,7 +99,17 @@ export function createDb(adapter: DbAdapter): Db {
   const loaded = adapter.load()
   // Fill in any collections missing from an older save.
   const data: DbData = loaded ? { ...seedData(), ...loaded } : seedData()
-  if (loaded) data.settings = { ...seedData().settings, ...loaded.settings }
+  if (loaded) {
+    data.settings = { ...seedData().settings, ...loaded.settings }
+    // Older saves: categories without a station, held orders without a table.
+    const seedStations = new Map(seedData().categories.map((c) => [c.id, c.stationId]))
+    for (const c of data.categories) c.stationId ??= seedStations.get(c.id) ?? null
+    for (const h of data.held) {
+      h.tableId ??= null
+      h.voids ??= []
+      h.updatedAt ??= h.heldAt
+    }
+  }
 
   const db: Db = {
     data,
@@ -106,6 +121,7 @@ export function createDb(adapter: DbAdapter): Db {
         db.data.shifts = []
         db.data.stockMoves = []
         db.data.held = []
+        db.data.tickets = []
       }
       db.save()
     },

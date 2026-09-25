@@ -60,7 +60,9 @@ describe('stores over the API', () => {
     expect(cart.held).toHaveLength(1)
     await cart.resume(cart.held[0]!.id)
     expect(cart.state.table).toBe('5')
-    expect(cart.held).toHaveLength(0)
+    // The bill stays saved on the server while it is open on this till.
+    expect(cart.state.heldId).toBe(cart.held[0]!.id)
+    expect(cart.waiting).toHaveLength(0)
   })
 
   it('reports a wrong PIN without throwing', async () => {
@@ -130,5 +132,46 @@ describe('stores over the API', () => {
     expect(cart.state.lines[0]!.qty).toBe(3)
     expect(cart.state.table).toMatch(/^[56] \+ [56]$/)
     expect(cart.state.discount).toEqual({ type: 'amount', value: 3 })
+  })
+
+  it('runs a table: send to kitchen and bar, reopen, cancel an item, pay', async () => {
+    await signedIn()
+    const { useCartStore } = await import('@/stores/cart')
+    const { useCatalogStore } = await import('@/stores/catalog')
+    const { useFloorStore } = await import('@/stores/floor')
+    const { useKitchenStore } = await import('@/stores/kitchen')
+    const { useShiftStore } = await import('@/stores/shift')
+    const cart = useCartStore()
+    const catalog = useCatalogStore()
+    const kitchen = useKitchenStore()
+    const table = useFloorStore().plan.tables[0]!
+    const product = (name: string) => catalog.products.find((p) => p.name === name)!
+
+    await cart.openTable(table)
+    cart.add(product('Chicken Fried Rice'), [], 2) // kitchen
+    cart.add(product('Lao Iced Coffee')) // bar
+    cart.add(product('Butter Croissant')) // no ticket
+    expect(cart.hasUnsent).toBe(true)
+
+    const { tickets, parked } = await cart.send()
+    expect(tickets.map((t) => t.stationId).sort()).toEqual(['bar', 'kitchen'])
+    expect(parked).toBe(true)
+    expect(cart.isEmpty).toBe(true)
+    expect(cart.heldForTable(table.id)).toBeTruthy()
+
+    // Back to the table: one rice is cancelled, and the kitchen hears about it on payment.
+    await cart.openTable(table)
+    expect(cart.hasUnsent).toBe(false)
+    const rice = cart.state.lines.findIndex((l) => l.name === 'Chicken Fried Rice')
+    cart.setQty(rice, 1)
+    expect(cart.hasUnsent).toBe(true)
+
+    await useShiftStore().open(0)
+    const order = await cart.checkout([{ method: 'cash', amount: 100 }])
+    expect(order.tableId).toBe(table.id)
+    expect(cart.heldForTable(table.id)).toBeUndefined()
+    await kitchen.load()
+    const cancel = kitchen.active.find((t) => t.items.some((i) => i.cancelled))!
+    expect(cancel.items).toMatchObject([{ name: 'Chicken Fried Rice', qty: 1, cancelled: true }])
   })
 })

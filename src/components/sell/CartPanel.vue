@@ -17,12 +17,19 @@ import {
   X,
   Star,
   Split,
+  ChefHat,
+  LayoutGrid,
+  CircleCheck,
 } from 'lucide-vue-next'
 import LineEditor from './LineEditor.vue'
 import DiscountModal from './DiscountModal.vue'
 import CustomerPicker from './CustomerPicker.vue'
 import HeldOrders from './HeldOrders.vue'
 import SplitBillModal from './SplitBillModal.vue'
+import TablePicker from './TablePicker.vue'
+import { useRouter } from 'vue-router'
+import { useFloorStore } from '@/stores/floor'
+import { useCatalogStore } from '@/stores/catalog'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import AnimatedNumber from '@/components/ui/AnimatedNumber.vue'
 import { useCartStore } from '@/stores/cart'
@@ -40,6 +47,10 @@ const cart = useCartStore()
 const customers = useCustomersStore()
 const settings = useSettingsStore()
 const toast = useToastStore()
+const floor = useFloorStore()
+const catalog = useCatalogStore()
+const router = useRouter()
+const tableOpen = ref(false)
 
 const editIndex = ref(-1)
 const editOpen = ref(false)
@@ -77,9 +88,36 @@ async function hold() {
   toast.show(t('cart.held', { label }), 'success')
 }
 
-function clear() {
-  cart.clear()
+async function clear() {
+  await cart.discard()
   confirmClear.value = false
+}
+
+const sending = ref(false)
+/** Sends new items to the kitchen and bar. A table's order then goes back to the floor plan. */
+async function send() {
+  if (sending.value) return
+  sending.value = true
+  try {
+    const table = cart.state.tableId
+    const { tickets, parked } = await cart.send()
+    const places = [
+      ...new Set(tickets.map((tk) => catalog.stations.find((s) => s.id === tk.stationId)?.name)),
+    ]
+    toast.show(
+      places.length ? t('kitchen.sent', { places: places.join(', ') }) : t('kitchen.nothingToSend'),
+      'success',
+    )
+    if (parked && table) await router.push('/tables')
+  } finally {
+    sending.value = false
+  }
+}
+
+/** "Sent" marks on lines that go to a station. */
+function sentLabel(l: { qty: number; sentQty?: number; categoryId: string }) {
+  if (!cart.hasStation(l.categoryId) || !l.sentQty) return ''
+  return l.sentQty >= l.qty ? t('kitchen.sentAll') : t('kitchen.sentSome', { n: l.sentQty })
 }
 </script>
 
@@ -91,8 +129,8 @@ function clear() {
         <h2 class="flex-1 text-lg font-bold">{{ t('cart.title') }}</h2>
         <button class="btn btn-ghost btn-sm" @click="heldOpen = true">
           <History class="size-4" /> {{ t('cart.heldButton') }}
-          <span v-if="cart.held.length" class="badge bg-accent text-primary-ink">{{
-            cart.held.length
+          <span v-if="cart.waiting.length" class="badge bg-accent text-primary-ink">{{
+            cart.waiting.length
           }}</span>
         </button>
         <button
@@ -125,8 +163,22 @@ function clear() {
       </div>
 
       <div class="flex gap-2">
+        <button
+          v-if="cart.state.orderType === 'dine-in' && floor.hasTables"
+          class="flex h-10 w-28 shrink-0 items-center gap-1.5 rounded-xl border px-3 text-sm"
+          :class="
+            cart.state.table
+              ? 'border-primary/40 bg-primary-soft font-semibold'
+              : 'border-dashed border-line text-ink-muted hover:border-primary hover:text-primary'
+          "
+          :aria-label="t('cart.tableLabel')"
+          @click="tableOpen = true"
+        >
+          <LayoutGrid class="size-4 shrink-0" />
+          <span class="truncate">{{ cart.state.table || t('cart.tablePlaceholder') }}</span>
+        </button>
         <input
-          v-if="cart.state.orderType === 'dine-in'"
+          v-else-if="cart.state.orderType === 'dine-in'"
           v-model="cart.state.table"
           class="input h-10 w-28"
           :placeholder="t('cart.tablePlaceholder')"
@@ -178,6 +230,11 @@ function clear() {
                 {{ l.options.map((o) => o.name).join(' · ') }}
               </span>
               <span v-if="l.note" class="block truncate text-xs text-accent">“{{ l.note }}”</span>
+              <span
+                v-if="sentLabel(l)"
+                class="mt-0.5 inline-flex items-center gap-1 text-[11px] font-semibold text-success"
+                ><CircleCheck class="size-3" /> {{ sentLabel(l) }}</span
+              >
               <span class="block text-xs text-ink-muted">
                 {{ settings.money(l.unitPrice) }}
                 <span v-if="l.discountPct" class="font-semibold text-success">
@@ -262,17 +319,32 @@ function clear() {
         </div>
       </dl>
 
-      <button class="btn btn-primary btn-lg w-full" :disabled="cart.isEmpty" @click="emit('pay')">
-        {{ t('cart.charge') }}
-        <AnimatedNumber :value="cart.totals.total" :format="settings.money" />
-        <kbd class="hidden rounded bg-black/10 px-1.5 text-xs font-medium lg:inline">F9</kbd>
-      </button>
+      <div class="flex gap-2">
+        <button
+          v-if="cart.hasUnsent"
+          class="btn btn-lg shrink-0 bg-accent-soft px-4 text-accent hover:brightness-95"
+          :disabled="sending"
+          @click="send"
+        >
+          <ChefHat class="size-5" /> {{ t('kitchen.send') }}
+        </button>
+        <button
+          class="btn btn-primary btn-lg min-w-0 flex-1"
+          :disabled="cart.isEmpty"
+          @click="emit('pay')"
+        >
+          {{ t('cart.charge') }}
+          <AnimatedNumber :value="cart.totals.total" :format="settings.money" />
+          <kbd class="hidden rounded bg-black/10 px-1.5 text-xs font-medium xl:inline">F9</kbd>
+        </button>
+      </div>
     </div>
 
     <LineEditor v-model="editOpen" :index="editIndex" />
     <DiscountModal v-model="discountOpen" />
     <CustomerPicker v-model="customerOpen" />
     <HeldOrders v-model="heldOpen" />
+    <TablePicker v-model="tableOpen" />
     <SplitBillModal
       v-model="splitOpen"
       @items="(selection) => emit('pay', { selection })"

@@ -10,6 +10,15 @@ import type {
   CheckoutRequest,
   Customer,
   DbData,
+  DiningTable,
+  FloorArea,
+  FloorPlan,
+  KitchenTicket,
+  Station,
+  TableShape,
+  TicketItem,
+  TicketLineInput,
+  TicketStatus,
   ExchangeRateSet,
   HeldOrder,
   Order,
@@ -28,7 +37,7 @@ import type {
   StockMove,
   Tint,
 } from '../types.ts'
-import { computeTotals, lineKey, roundTo } from '../utils/pos.ts'
+import { computeTotals, lineKey, mergeDiscounts, mergeLines, roundTo } from '../utils/pos.ts'
 import { effectiveRates, isDateKey, localDate } from '../utils/rates.ts'
 import type { Db } from './db.ts'
 import {
@@ -87,6 +96,10 @@ const TINTS: Tint[] = ['sage', 'amber', 'rose', 'sky', 'lilac', 'sand']
 const ORDER_TYPES: OrderType[] = ['dine-in', 'takeaway', 'delivery']
 const METHODS: PaymentMethod[] = ['cash', 'card', 'qr']
 const ROLES: Role[] = ['admin', 'cashier']
+const SHAPES: TableShape[] = ['square', 'round', 'rect']
+const TICKET_STATUSES: TicketStatus[] = ['new', 'preparing', 'ready', 'done']
+/** Size of the floor plan, in plan units. */
+export const PLAN = { w: 1000, h: 640 } as const
 
 const uid = (prefix = '') =>
   prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
@@ -341,6 +354,189 @@ export function createApi(db: Db) {
     return null
   })
 
+  // ----- Kitchen and bar stations -------------------------------------------
+
+  function stationRef(v: unknown): string | null {
+    if (v === null || v === undefined || v === '') return null
+    const id = str(v, 'stationId')
+    if (!d().stations.some((s) => s.id === id)) throw bad('stationId does not exist')
+    return id
+  }
+
+  route('GET', '/stations', 'staff', () => d().stations)
+
+  route('PUT', '/stations', 'admin', ({ body }) => {
+    const seen = new Set<string>()
+    const next = arr(body.stations, 'stations').map((raw, i): Station => {
+      const s = obj(raw, `stations[${i}]`)
+      const id = s.id ? str(s.id, `stations[${i}].id`, { max: 40 }) : uid('stn-')
+      if (seen.has(id)) throw bad(`stations[${i}]: id is used twice`)
+      seen.add(id)
+      return { id, name: str(s.name, `stations[${i}].name`, { required: true, max: 30 }) }
+    })
+    // Categories sent to a removed station no longer print tickets.
+    for (const c of d().categories) if (c.stationId && !seen.has(c.stationId)) c.stationId = null
+    d().stations = next
+    return next
+  })
+
+  // ----- Floor plan --------------------------------------------------------
+
+  route('GET', '/floor', 'staff', () => d().floor)
+
+  route('PUT', '/floor', 'admin', ({ body }) => {
+    const areaIds = new Set<string>()
+    const areas = arr(body.areas, 'areas').map((raw, i): FloorArea => {
+      const a = obj(raw, `areas[${i}]`)
+      const id = a.id ? str(a.id, `areas[${i}].id`, { max: 40 }) : uid('area-')
+      if (areaIds.has(id)) throw bad(`areas[${i}]: id is used twice`)
+      areaIds.add(id)
+      return { id, name: str(a.name, `areas[${i}].name`, { required: true, max: 30 }) }
+    })
+    if (!areas.length) throw bad('Add at least one area')
+    const ids = new Set<string>()
+    const names = new Set<string>()
+    const tables = arr(body.tables, 'tables').map((raw, i): DiningTable => {
+      const tb = obj(raw, `tables[${i}]`)
+      const f = (k: string) => `tables[${i}].${k}`
+      const id = tb.id ? str(tb.id, f('id'), { max: 40 }) : uid('tbl-')
+      if (ids.has(id)) throw bad(`${f('id')} is used twice`)
+      ids.add(id)
+      const name = str(tb.name, f('name'), { required: true, max: 12 })
+      if (names.has(name.toLowerCase()))
+        throw bad(`Two tables are called "${name}"`, 'DUPLICATE_TABLE_NAME')
+      names.add(name.toLowerCase())
+      const areaId = str(tb.areaId, f('areaId'), { required: true })
+      if (!areaIds.has(areaId)) throw bad(`${f('areaId')} does not exist`)
+      const w = Math.round(num(tb.w, f('w'), { min: 40, max: 600 }))
+      const h = Math.round(num(tb.h, f('h'), { min: 40, max: 600 }))
+      return {
+        id,
+        name,
+        areaId,
+        seats: num(tb.seats, f('seats'), { min: 1, max: 50, int: true }),
+        shape: oneOf(tb.shape, f('shape'), SHAPES),
+        w,
+        h,
+        x: Math.round(Math.min(Math.max(num(tb.x, f('x')), 0), PLAN.w - w)),
+        y: Math.round(Math.min(Math.max(num(tb.y, f('y')), 0), PLAN.h - h)),
+      }
+    })
+    const busy = d().held.find((hd) => hd.tableId && !ids.has(hd.tableId))
+    if (busy)
+      throw conflict('TABLE_IN_USE', `Table ${busy.table} has an open bill. Close or move it first`)
+    const plan: FloorPlan = { areas, tables }
+    d().floor = plan
+    return plan
+  })
+
+  // ----- Kitchen tickets ---------------------------------------------------
+
+  /** Creates one ticket per station for the items that need preparing. */
+  function makeTickets(
+    head: {
+      label: string
+      orderType: OrderType
+      table: string
+      tableId: string | null
+      note: string
+    },
+    lines: TicketLineInput[],
+    staffName: string,
+  ): KitchenTicket[] {
+    const byStation = new Map<string, TicketItem[]>()
+    for (const l of lines) {
+      if (!(l.qty > 0)) continue
+      const p = findProduct(l.productId)
+      const stationId = p && d().categories.find((c) => c.id === p.categoryId)?.stationId
+      if (!p || !stationId || !d().stations.some((s) => s.id === stationId)) continue
+      const items = byStation.get(stationId) ?? []
+      items.push({
+        name: p.name,
+        emoji: p.emoji,
+        qty: l.qty,
+        options: l.options,
+        note: l.note,
+        cancelled: !!l.cancelled,
+        done: false,
+      })
+      byStation.set(stationId, items)
+    }
+    const now = Date.now()
+    let number = d().tickets.reduce((m, tk) => Math.max(m, tk.number), 0)
+    const made = [...byStation].map(([stationId, items]): KitchenTicket => ({
+      id: uid('tkt-'),
+      number: ++number,
+      stationId,
+      createdAt: now,
+      status: 'new',
+      statusAt: now,
+      ...head,
+      staffName,
+      items,
+    }))
+    d().tickets.unshift(...made)
+    if (d().tickets.length > 2000) d().tickets.length = 2000
+    return made
+  }
+
+  function ticketLines(v: unknown, field: string): TicketLineInput[] {
+    return arr(v ?? [], field).map((raw, i) => {
+      const l = obj(raw, `${field}[${i}]`)
+      return {
+        productId: str(l.productId, `${field}[${i}].productId`, { required: true }),
+        qty: num(l.qty, `${field}[${i}].qty`, { min: 0, max: 999, int: true }),
+        options: arr(l.options ?? [], `${field}[${i}].options`).map((o) => String(o)),
+        note: str(l.note, `${field}[${i}].note`, { max: 200 }),
+        cancelled: l.cancelled === true,
+      }
+    })
+  }
+
+  function orderHead(body: Record<string, unknown>) {
+    const tableId = tableRef(body.tableId)
+    return {
+      label: str(body.label, 'label', { max: 60 }),
+      orderType: oneOf(body.orderType ?? 'dine-in', 'orderType', ORDER_TYPES),
+      table: tableId ? findTable(tableId)!.name : str(body.table, 'table', { max: 20 }),
+      tableId,
+      note: str(body.note, 'note', { max: 500 }),
+    }
+  }
+
+  route('POST', '/tickets', 'staff', ({ body, user }) => {
+    const made = makeTickets(orderHead(body), ticketLines(body.lines, 'lines'), user!.name)
+    return { __status: 201, value: made }
+  })
+
+  route('GET', '/tickets', 'staff', ({ query }) => {
+    const status = query.status ?? 'active'
+    const list = d().tickets.filter(
+      (tk) =>
+        (!query.stationId || tk.stationId === query.stationId) &&
+        (status === 'done' ? tk.status === 'done' : tk.status !== 'done'),
+    )
+    if (status === 'done') {
+      const limit = num(query.limit, 'limit', { min: 1, max: 200, int: true, fallback: 20 })
+      return list.sort((a, b) => b.statusAt - a.statusAt).slice(0, limit)
+    }
+    return list.sort((a, b) => a.createdAt - b.createdAt)
+  })
+
+  route('PATCH', '/tickets/:id', 'staff', ({ params, body }) => {
+    const tk = d().tickets.find((x) => x.id === params.id)
+    if (!tk) throw notFound('Ticket')
+    if (body.item !== undefined) {
+      const i = num(body.item, 'item', { min: 0, max: tk.items.length - 1, int: true })
+      tk.items[i]!.done = body.done !== false
+    }
+    if (body.status !== undefined) {
+      tk.status = oneOf(body.status, 'status', TICKET_STATUSES)
+      tk.statusAt = Date.now()
+    }
+    return tk
+  })
+
   // ----- Categories --------------------------------------------------------
 
   route('GET', '/categories', 'staff', () => d().categories)
@@ -350,6 +546,7 @@ export function createApi(db: Db) {
       id: uid('cat-'),
       name: str(body.name, 'name', { required: true, max: 40 }),
       tint: body.tint === undefined ? 'sage' : oneOf(body.tint, 'tint', TINTS),
+      stationId: stationRef(body.stationId),
     }
     d().categories.push(c)
     return { __status: 201, value: c }
@@ -360,6 +557,7 @@ export function createApi(db: Db) {
     if (!c) throw notFound('Category')
     if (body.name !== undefined) c.name = str(body.name, 'name', { required: true, max: 40 })
     if (body.tint !== undefined) c.tint = oneOf(body.tint, 'tint', TINTS)
+    if (body.stationId !== undefined) c.stationId = stationRef(body.stationId)
     return c
   })
 
@@ -639,8 +837,37 @@ export function createApi(db: Db) {
       ? { date: rates.effectiveDate, base: rates.base, rates: rates.rates }
       : null
     if (splitWays) order.splitWays = splitWays
+    const tableId = tableRef(body.tableId)
+    if (tableId) {
+      order.tableId = tableId
+      order.table = findTable(tableId)!.name
+    }
     d().orders.unshift(order)
     for (const l of lines) logStock(l.productId, -l.qty, `Sale #${order.number}`, user!.name)
+    // The kitchen gets whatever wasn't sent before, and any cancellations still to report.
+    const unsent = arr(body.lines, 'lines').map((raw, i) => {
+      const sent = num(obj(raw, 'line').sentQty, `lines[${i}].sentQty`, { min: 0, fallback: 0 })
+      const l = lines[i]!
+      return {
+        productId: l.productId,
+        qty: Math.max(l.qty - sent, 0),
+        options: l.options.map((o) => o.name),
+        note: l.note,
+      }
+    })
+    makeTickets(
+      {
+        label: `#${order.number}`,
+        orderType: order.orderType,
+        table: order.table,
+        tableId,
+        note: order.note,
+      },
+      [...unsent, ...ticketLines(body.voids, 'voids').map((v) => ({ ...v, cancelled: true }))],
+      user!.name,
+    )
+    // Paying a table's bill closes it.
+    if (body.heldId) d().held = d().held.filter((x) => x.id !== body.heldId)
     if (customer) {
       customer.totalSpent = round(customer.totalSpent + order.total)
       customer.points += order.pointsEarned
@@ -711,29 +938,106 @@ export function createApi(db: Db) {
 
   // ----- Held orders -------------------------------------------------------
 
+  const findTable = (id: string) => d().floor.tables.find((tb) => tb.id === id)
+
+  function tableRef(v: unknown): string | null {
+    if (v === null || v === undefined || v === '') return null
+    const id = str(v, 'tableId')
+    if (!findTable(id)) throw bad('tableId does not exist')
+    return id
+  }
+
+  /** A table holds one bill: a second one is merged or moved, not added. */
+  function checkTableFree(tableId: string | null, exceptId?: string) {
+    const other = tableId && d().held.find((x) => x.tableId === tableId && x.id !== exceptId)
+    if (other) throw conflict('TABLE_BUSY', `Table ${other.table} already has an open bill`)
+  }
+
+  function heldFrom(body: Record<string, unknown>, base?: HeldOrder): HeldOrder {
+    const lines = arr(body.lines, 'lines') as OrderLine[]
+    if (!lines.length) throw bad('A held order needs at least one item', 'EMPTY_ORDER')
+    const head = orderHead(body)
+    checkTableFree(head.tableId, base?.id)
+    const now = Date.now()
+    return {
+      id: base?.id ?? uid('hld-'),
+      heldAt: base?.heldAt ?? now,
+      updatedAt: now,
+      ...head,
+      label: head.label || base?.label || `Order ${d().held.length + 1}`,
+      lines,
+      voids: arr(body.voids ?? [], 'voids') as OrderLine[],
+      discount: (body.discount as HeldOrder['discount']) ?? { type: 'percent', value: 0 },
+      customerId: body.customerId ? str(body.customerId, 'customerId') : null,
+    }
+  }
+
+  /** Open tickets follow their bill to another table, so "ready" shows at the right table. */
+  function retargetTickets(
+    fromTableId: string | null,
+    to: { tableId: string | null; table: string },
+  ) {
+    if (!fromTableId) return
+    for (const tk of d().tickets)
+      if (tk.tableId === fromTableId && tk.status !== 'done') Object.assign(tk, to)
+  }
+
+  const findHeld = (id: string) => {
+    const h = d().held.find((x) => x.id === id)
+    if (!h) throw notFound('Held order')
+    return h
+  }
+
   route('GET', '/held-orders', 'staff', () => d().held)
 
   route('POST', '/held-orders', 'staff', ({ body }) => {
-    const lines = arr(body.lines, 'lines') as OrderLine[]
-    if (!lines.length) throw bad('A held order needs at least one item', 'EMPTY_ORDER')
-    const h: HeldOrder = {
-      id: uid('hld-'),
-      heldAt: Date.now(),
-      label: str(body.label, 'label', { max: 60 }) || `Order ${d().held.length + 1}`,
-      lines,
-      discount: (body.discount as HeldOrder['discount']) ?? { type: 'percent', value: 0 },
-      orderType: oneOf(body.orderType ?? 'dine-in', 'orderType', ORDER_TYPES),
-      table: str(body.table, 'table', { max: 20 }),
-      note: str(body.note, 'note', { max: 500 }),
-      customerId: body.customerId ? str(body.customerId, 'customerId') : null,
-    }
+    const h = heldFrom(body)
     d().held.unshift(h)
     return { __status: 201, value: h }
   })
 
+  route('PUT', '/held-orders/:id', 'staff', ({ params, body }) => {
+    const h = heldFrom(body, findHeld(params.id!))
+    d().held = d().held.map((x) => (x.id === h.id ? h : x))
+    return h
+  })
+
+  route('POST', '/held-orders/:id/move', 'staff', ({ params, body }) => {
+    const h = findHeld(params.id!)
+    const tableId = tableRef(body.tableId)
+    checkTableFree(tableId, h.id)
+    retargetTickets(h.tableId, {
+      tableId,
+      table: tableId ? findTable(tableId)!.name : '',
+    })
+    h.tableId = tableId
+    h.table = tableId ? findTable(tableId)!.name : ''
+    if (tableId) h.orderType = 'dine-in'
+    h.updatedAt = Date.now()
+    return h
+  })
+
+  route('POST', '/held-orders/:id/merge', 'staff', ({ params, body }) => {
+    const h = findHeld(params.id!)
+    const ids = arr(body.ids, 'ids').map((v) => str(v, 'ids[]'))
+    if (!ids.length || ids.includes(h.id)) throw bad('ids must list other held orders')
+    const others = ids.map(findHeld)
+    for (const o of others) {
+      retargetTickets(o.tableId, { tableId: h.tableId, table: h.table })
+      h.lines = mergeLines(h.lines, o.lines, () => uid())
+      h.voids = [...h.voids, ...o.voids]
+      h.customerId ??= o.customerId
+      if (o.note) h.note = [h.note, o.note].filter(Boolean).join(' · ').slice(0, 500)
+    }
+    const disc = mergeDiscounts([h.discount, ...others.map((o) => o.discount)])
+    h.discount = disc.type === 'amount' ? { ...disc, value: round(disc.value) } : disc
+    h.updatedAt = Date.now()
+    d().held = d().held.filter((x) => !ids.includes(x.id))
+    return h
+  })
+
   route('DELETE', '/held-orders/:id', 'staff', ({ params }) => {
-    const h = d().held.find((x) => x.id === params.id)
-    if (!h) throw notFound('Held order')
+    const h = findHeld(params.id!)
     d().held = d().held.filter((x) => x.id !== params.id)
     return h
   })
@@ -1001,6 +1305,7 @@ export function createApi(db: Db) {
             id: uid('cat-'),
             name: catText.slice(0, 40),
             tint: TINTS[d().categories.length % TINTS.length]!,
+            stationId: null,
           }
           d().categories.push(createdCategory)
           categoryId = createdCategory.id
@@ -1196,9 +1501,12 @@ export function createApi(db: Db) {
       'shifts',
       'held',
       'exchangeRates',
+      'stations',
+      'tickets',
     ] as const
     const next = { ...d() } as DbData
     for (const k of keys) if (data[k] !== undefined) (next[k] as unknown[]) = arr(data[k], k)
+    if (data.floor) next.floor = obj(data.floor, 'floor') as unknown as FloorPlan
     if (data.settings) next.settings = { ...d().settings, ...obj(data.settings, 'settings') }
     if (!next.staff.some((u) => u.role === 'admin')) throw bad('The backup has no manager account')
     db.data = next

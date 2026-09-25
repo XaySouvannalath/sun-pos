@@ -6,7 +6,7 @@ setting. The screens don't need to change.
 
 - [How it works](#how-it-works) and [switching to your backend](#switching-to-your-backend)
 - [The mock backend](#the-mock-backend) and its JSON data files
-- [REST API reference](#rest-api-reference): 56 endpoints
+- [REST API reference](#rest-api-reference): 66 endpoints
 - [Building your backend](#building-your-backend): a checklist and the contract tests
 
 Types for every request and response are in [`src/types.ts`](../src/types.ts).
@@ -47,14 +47,14 @@ Restart `npm run dev` after changing `.env.local`. With `VITE_API_PROXY`, your b
 
 ## The mock backend
 
-| File                           | Purpose                                                                                                                                                                                  |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/mock/data/*.json`         | Seed data: `settings`, `staff`, `categories`, `products`, `customers`, `orders` (about 220 demo sales), `exchange-rates` (a week of demo rates). Edit these to change the starting data. |
-| `src/mock/router.ts`           | Every endpoint: routing, validation, roles and business rules. **This is the reference implementation for your backend.**                                                                |
-| `src/mock/logic.ts`            | Top-seller ranking, shift cash-up and report calculations.                                                                                                                               |
-| `src/mock/db.ts`               | Loads the seed data and saves changes.                                                                                                                                                   |
-| `src/mock/node/vite-plugin.ts` | Serves the mock from `npm run dev` and `npm run preview`.                                                                                                                                |
-| `src/mock/browser.ts`          | Runs the mock inside the browser (`VITE_API_MODE=local`).                                                                                                                                |
+| File                           | Purpose                                                                                                                                                                                                                |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/mock/data/*.json`         | Seed data: `settings`, `staff`, `categories`, `products`, `customers`, `orders` (about 220 demo sales), `exchange-rates` (a week of demo rates), `floor` (tables), `stations`. Edit these to change the starting data. |
+| `src/mock/router.ts`           | Every endpoint: routing, validation, roles and business rules. **This is the reference implementation for your backend.**                                                                                              |
+| `src/mock/logic.ts`            | Top-seller ranking, shift cash-up and report calculations.                                                                                                                                                             |
+| `src/mock/db.ts`               | Loads the seed data and saves changes.                                                                                                                                                                                 |
+| `src/mock/node/vite-plugin.ts` | Serves the mock from `npm run dev` and `npm run preview`.                                                                                                                                                              |
+| `src/mock/browser.ts`          | Runs the mock inside the browser (`VITE_API_MODE=local`).                                                                                                                                                              |
 
 - Changes are saved to **`.mock-db.json`** in the project root, so they survive a restart. This file is git-ignored.
 - Run **`npm run mock:reset`** (or delete the file) to start again from the JSON seed files.
@@ -169,14 +169,15 @@ shows the rates it was paid at.
 
 ### Categories
 
-| Method   | Path              | Access  | Body               | Response                           |
-| -------- | ----------------- | ------- | ------------------ | ---------------------------------- |
-| `GET`    | `/categories`     | staff   | —                  | `Category[]`                       |
-| `POST`   | `/categories`     | manager | `{ name, tint }`   | `201 Category`                     |
-| `PATCH`  | `/categories/:id` | manager | `{ name?, tint? }` | `Category`                         |
-| `DELETE` | `/categories/:id` | manager | —                  | `204`, or `409 CATEGORY_NOT_EMPTY` |
+| Method   | Path              | Access  | Body                           | Response                           |
+| -------- | ----------------- | ------- | ------------------------------ | ---------------------------------- |
+| `GET`    | `/categories`     | staff   | —                              | `Category[]`                       |
+| `POST`   | `/categories`     | manager | `{ name, tint, stationId }`    | `201 Category`                     |
+| `PATCH`  | `/categories/:id` | manager | `{ name?, tint?, stationId? }` | `Category`                         |
+| `DELETE` | `/categories/:id` | manager | —                              | `204`, or `409 CATEGORY_NOT_EMPTY` |
 
-`tint` is one of `sage`, `amber`, `rose`, `sky`, `lilac`, `sand`.
+`tint` is one of `sage`, `amber`, `rose`, `sky`, `lilac`, `sand`. `stationId` is where the category's items are
+prepared (see [Kitchen and bar](#kitchen-and-bar)), or `null` for items served at the counter with no ticket.
 
 ### Products
 
@@ -256,7 +257,10 @@ looks up prices, works out totals, checks stock, deducts stock, assigns the orde
     }
   ],
   "payments": [{ "method": "cash", "amount": 20 }],
-  "splitWays": null
+  "splitWays": null,
+  "tableId": "tbl-5",
+  "heldId": "hld-abc123",
+  "voids": []
 }
 ```
 
@@ -275,6 +279,8 @@ Rules:
 5. `payments[].method` is `cash`, `card` or `qr`. Split payments are allowed.
 6. `pointsEarned = floor(total × settings.pointsPerUnit)` when a customer is attached.
 7. The server saves the rates in effect on the day of the sale in `exchangeRates`.
+8. Tables: `tableId` puts the table's name on the order, and `heldId` closes that table's bill. Items not yet sent to the
+   kitchen (`qty − sentQty` per line) and `voids` become kitchen tickets.
 
 **Split bill.** There are two ways to split, and neither needs a special endpoint:
 
@@ -300,15 +306,58 @@ into the current order.
 `to` is exclusive. A refund puts items back into stock when `restock` is true, reverses the customer's spend and points,
 and records the open shift (cash refunds come out of that drawer).
 
-### Held orders
+### Held orders (saved bills)
 
-Parked orders are shared across tills.
+Saved bills are shared across tills. A bill with a `tableId` is that table's open bill: a table has at most one.
 
-| Method   | Path               | Access | Body                                                             | Response                                                   |
-| -------- | ------------------ | ------ | ---------------------------------------------------------------- | ---------------------------------------------------------- |
-| `GET`    | `/held-orders`     | staff  | —                                                                | `HeldOrder[]`                                              |
-| `POST`   | `/held-orders`     | staff  | `{ label, lines, discount, orderType, table, note, customerId }` | `201 HeldOrder`                                            |
-| `DELETE` | `/held-orders/:id` | staff  | —                                                                | The removed `HeldOrder` (used for both resume and discard) |
+| Method   | Path                     | Access | Body                                                                             | Response                                         |
+| -------- | ------------------------ | ------ | -------------------------------------------------------------------------------- | ------------------------------------------------ |
+| `GET`    | `/held-orders`           | staff  | —                                                                                | `HeldOrder[]`                                    |
+| `POST`   | `/held-orders`           | staff  | `{ label, lines, discount, orderType, table, tableId, note, customerId, voids }` | `201 HeldOrder`, or `409 TABLE_BUSY`             |
+| `PUT`    | `/held-orders/:id`       | staff  | Same as `POST` (replaces the bill's contents)                                    | `HeldOrder`                                      |
+| `POST`   | `/held-orders/:id/move`  | staff  | `{ tableId }` (`null` takes it off tables)                                       | `HeldOrder`, or `409 TABLE_BUSY`                 |
+| `POST`   | `/held-orders/:id/merge` | staff  | `{ ids: [...] }`: other bills to add to this one                                 | The combined `HeldOrder`; the others are removed |
+| `DELETE` | `/held-orders/:id`       | staff  | —                                                                                | The removed `HeldOrder`                          |
+
+- A bill stays saved while a till has it open. Saving again (`PUT`) updates it, and paying for it (`POST /orders` with
+  `heldId`) removes it in the same step.
+- `lines[].sentQty` records how many of each item the kitchen already has. `voids` are items removed after they were
+  sent; the kitchen is told they're cancelled when the bill is sent or paid.
+- Moving or merging a bill also moves its open kitchen tickets, so "ready" shows at the right table.
+- Merging combines identical items, keeps notes and the first customer, and adds up amount discounts (otherwise the
+  target bill's discount is kept).
+
+### Floor plan
+
+| Method | Path     | Access  | Body                | Response    |
+| ------ | -------- | ------- | ------------------- | ----------- |
+| `GET`  | `/floor` | staff   | —                   | `FloorPlan` |
+| `PUT`  | `/floor` | manager | `{ areas, tables }` | `FloorPlan` |
+
+`FloorPlan`: `areas: [{ id, name }]` and `tables: [{ id, name, areaId, seats, shape, x, y, w, h }]`. `shape` is
+`square`, `round` or `rect`. Positions and sizes are in plan units: each area is **1000 × 640**, tables are 40–600
+wide and high, and the server keeps them inside the plan. Table names must be unique (`400 DUPLICATE_TABLE_NAME`). New
+areas and tables may leave `id` out. Removing a table that has an open bill fails with `409 TABLE_IN_USE`.
+
+### Kitchen and bar
+
+Stations are the places where orders are prepared. Each category is sent to one station, or none.
+
+| Method  | Path           | Access  | Body / query                                                        | Response                                                 |
+| ------- | -------------- | ------- | ------------------------------------------------------------------- | -------------------------------------------------------- |
+| `GET`   | `/stations`    | staff   | —                                                                   | `Station[]` (`{ id, name }`)                             |
+| `PUT`   | `/stations`    | manager | `{ stations: [{ id?, name }] }` (the full list)                     | `Station[]`; categories of removed ones get none         |
+| `POST`  | `/tickets`     | staff   | `{ label, orderType, table, tableId, note, lines }`                 | `201 KitchenTicket[]`, one per station (maybe `[]`)      |
+| `GET`   | `/tickets`     | staff   | `?status=active` (default) or `?status=done&limit=20`, `stationId=` | Open tickets oldest first, or finished ones newest first |
+| `PATCH` | `/tickets/:id` | staff   | `{ status? }` and/or `{ item: index, done: true }`                  | `KitchenTicket`                                          |
+
+- `lines`: `[{ productId, qty, options: ["Large", "Oat milk"], note, cancelled? }]`. Items whose category has no station
+  are skipped.
+- `KitchenTicket`: `{ id, number, stationId, createdAt, status, statusAt, label, orderType, table, tableId, note,
+staffName, items: [{ name, emoji, qty, options, note, cancelled, done }] }`.
+- `status` goes `new` → `preparing` → `ready` → `done`. Ready tickets with a `tableId` show a bell on the floor plan.
+- **Checkout sends the rest automatically:** `POST /orders` makes tickets for each line's `qty − sentQty`, plus any
+  `voids`, so a takeaway order goes to the kitchen when it's paid.
 
 ### Customers
 
@@ -404,13 +453,13 @@ Rules:
 
 ### Backup and admin (manager)
 
-| Method | Path           | Body                                                                | Response                                                                                                                                          |
-| ------ | -------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET`  | `/backup`      | —                                                                   | `{ app: "sun-pos", version: 2, at, data: { settings, staff, categories, products, stockMoves, customers, orders, shifts, held, exchangeRates } }` |
-| `POST` | `/backup`      | A backup file (version 1 files from the browser-only app also work) | `204`                                                                                                                                             |
-| `POST` | `/admin/reset` | `{ scope: "sales" \| "demo" \| "all" }`                             | `204`                                                                                                                                             |
+| Method | Path           | Body                                                                | Response                                                                                                                                                                    |
+| ------ | -------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`  | `/backup`      | —                                                                   | `{ app: "sun-pos", version: 2, at, data: { settings, staff, categories, products, stockMoves, customers, orders, shifts, held, exchangeRates, floor, stations, tickets } }` |
+| `POST` | `/backup`      | A backup file (version 1 files from the browser-only app also work) | `204`                                                                                                                                                                       |
+| `POST` | `/admin/reset` | `{ scope: "sales" \| "demo" \| "all" }`                             | `204`                                                                                                                                                                       |
 
-`sales` clears orders, shifts, held orders and stock movements. `demo` does the same, then loads the demo sales. `all`
+`sales` clears orders, shifts, held orders, kitchen tickets and stock movements. `demo` does the same, then loads the demo sales. `all`
 restores all the seed data. Exchange rates are kept, except by `all`. A real backend may want to restrict or remove `/admin/reset` in production.
 
 ---
@@ -427,24 +476,26 @@ restores all the seed data. Exchange rates are kept, except by `all`. A real bac
 5. **Hash PINs** (bcrypt or argon2) and **limit wrong attempts**. The mock does neither.
 6. **Check it with the contract tests.** [`src/__tests__/api.spec.ts`](../src/__tests__/api.spec.ts) runs these
    scenarios against the mock: sign-in and roles, server-side pricing, options, retries, stock, payments, loyalty
-   points, refunds, cash-up, reports, exchange rates and split payments. Run the same requests against your backend and compare.
+   points, refunds, cash-up, reports, exchange rates, split payments, tables and kitchen tickets. Run the same requests against your backend and compare.
 7. **Switch the app over** with `VITE_API_PROXY` (development) or `VITE_API_URL` (production).
 
 ## Frontend reference
 
 The screens use the Pinia stores. Each store keeps a cached copy of its data and calls the API through `src/api`.
 
-| Store               | Main functions                                                                                                                                      | Endpoints used                              |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
-| `useAuthStore`      | `init`, `login`, `logout`, `loadStaff`, `saveStaff`, `removeStaff`                                                                                  | `/auth/*`, `/staff`                         |
-| `useSettingsStore`  | `load`, `save`, `money`, `round`, `toggleTheme` (theme stays on the device)                                                                         | `/settings`                                 |
-| `useCatalogStore`   | `load`, `refreshProducts`, `findByCode`, `saveProduct`, `removeProduct`, `saveCategory`, `removeCategory`, `adjustStock`, `loadMoves`               | `/categories`, `/products`, `/stock/*`      |
-| `useCartStore`      | `add`, `setQty`, `remove`, `clear`, `hold`, `resume`, `discardHeld`, `mergeHeld`, `selectionTotals`, `checkout(payments, { selection, splitWays })` | `/held-orders`, `POST /orders`              |
-| `useRatesStore`     | `load`, `loadHistory`, `save`, `remove`                                                                                                             | `/exchange-rates/*`                         |
-| `useOrdersStore`    | `loadTopSellers`, `refund`                                                                                                                          | `/orders/top-sellers`, `/orders/:id/refund` |
-| `useCustomersStore` | `load`, `search`, `save`, `remove`, `refresh`                                                                                                       | `/customers`                                |
-| `useShiftStore`     | `load`, `open`, `moveCash`, `close`                                                                                                                 | `/shifts/*`                                 |
-| `useAppStore`       | `load` (everything needed after sign-in)                                                                                                            | several                                     |
+| Store               | Main functions                                                                                                                                                          | Endpoints used                               |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `useAuthStore`      | `init`, `login`, `logout`, `loadStaff`, `saveStaff`, `removeStaff`                                                                                                      | `/auth/*`, `/staff`                          |
+| `useSettingsStore`  | `load`, `save`, `money`, `round`, `toggleTheme` (theme stays on the device)                                                                                             | `/settings`                                  |
+| `useCatalogStore`   | `load`, `refreshProducts`, `findByCode`, `saveProduct`, `removeProduct`, `saveCategory`, `removeCategory`, `adjustStock`, `loadMoves`                                   | `/categories`, `/products`, `/stock/*`       |
+| `useCartStore`      | `add`, `setQty`, `remove`, `discard`, `hold`, `resume`, `openTable`, `setTable`, `send`, `mergeHeld`, `selectionTotals`, `checkout(payments, { selection, splitWays })` | `/held-orders/*`, `/tickets`, `POST /orders` |
+| `useFloorStore`     | `load`, `save`                                                                                                                                                          | `/floor`                                     |
+| `useKitchenStore`   | `load`, `watch` (refreshes every 5 s), `setStatus`, `toggleItem`                                                                                                        | `/tickets`                                   |
+| `useRatesStore`     | `load`, `loadHistory`, `save`, `remove`                                                                                                                                 | `/exchange-rates/*`                          |
+| `useOrdersStore`    | `loadTopSellers`, `refund`                                                                                                                                              | `/orders/top-sellers`, `/orders/:id/refund`  |
+| `useCustomersStore` | `load`, `search`, `save`, `remove`, `refresh`                                                                                                                           | `/customers`                                 |
+| `useShiftStore`     | `load`, `open`, `moveCash`, `close`                                                                                                                                     | `/shifts/*`                                  |
+| `useAppStore`       | `load` (everything needed after sign-in)                                                                                                                                | several                                      |
 
 The Orders, Reports, Shift history, customer history and Import screens call `api.*` directly.
 File reading, column matching and templates for the import are in `src/utils/importer.ts`.
