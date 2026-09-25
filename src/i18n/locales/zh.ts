@@ -762,6 +762,9 @@ const zh: Messages = {
     },
   },
   tables: {
+    pickOtherArea: '要选其他区域的桌台，请用上方的区域按钮切换。',
+    pickAny: '点击空闲桌台把 {n} 号桌移过去，或点击使用中的桌台合并账单。',
+    dropArea: '将 {from} 移到{area}',
     moveOrderHelp: '选择要把此订单移到的桌台，厨房单据会一起移动。',
     moveOrder: '换桌（{n} 号桌）',
     mergeBody: '两张账单将合并为第二张桌台上的一张账单。已送厨的商品保持不变。',

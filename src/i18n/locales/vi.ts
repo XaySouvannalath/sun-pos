@@ -780,6 +780,9 @@ const vi: Messages = {
     },
   },
   tables: {
+    pickOtherArea: 'Để chọn khu vực khác, bấm nút khu vực ở trên.',
+    pickAny: 'Chạm bàn trống để chuyển bàn {n} sang, hoặc chạm bàn có khách để gộp.',
+    dropArea: 'Chuyển {from} sang {area}',
     moveOrderHelp: 'Chọn bàn để chuyển đơn này sang. Phiếu bếp sẽ chuyển theo.',
     moveOrder: 'Chuyển bàn {n}',
     mergeBody: 'Hai hóa đơn sẽ gộp thành một ở bàn thứ hai. Các món đã gửi bếp vẫn giữ nguyên.',

@@ -24,6 +24,8 @@ const props = defineProps<{
   editing?: boolean
   selectedId?: string | null
   states?: Record<string, TableState>
+  /** Other areas, offered as drop targets while carrying a bill (to move it to another area). */
+  otherAreas?: { id: string; name: string }[]
 }>()
 const emit = defineEmits<{
   tap: [table: DiningTable]
@@ -31,6 +33,8 @@ const emit = defineEmits<{
   change: [id: string, patch: Partial<DiningTable>]
   /** A bill was dragged from one table and dropped on another. */
   drop: [from: DiningTable, to: DiningTable]
+  /** A bill was dropped on another area's button: choose a table there. */
+  dropArea: [from: DiningTable, areaId: string]
 }>()
 
 /** Plan size in plan units; tables are placed on a 10-unit grid. */
@@ -61,7 +65,21 @@ interface Carry {
   active: boolean
 }
 let carry: Carry | null = null
-const carrying = ref<{ id: string; x: number; y: number; overId: string | null } | null>(null)
+const carrying = ref<{
+  id: string
+  x: number
+  y: number
+  overId: string | null
+  overArea: string | null
+} | null>(null)
+
+/** The area button under the pointer (the pointer is captured, so look it up by position). */
+function areaAt(clientX: number, clientY: number): string | null {
+  const el = document
+    .elementsFromPoint(clientX, clientY)
+    .find((x) => (x as HTMLElement).dataset?.dropArea) as HTMLElement | undefined
+  return el?.dataset.dropArea ?? null
+}
 let skipClick = false
 
 function tableAt(clientX: number, clientY: number, except: string) {
@@ -118,11 +136,13 @@ function move(e: PointerEvent) {
     if (!carry.active) window.addEventListener('keydown', escCarry)
     carry.active = true
     const r = board.value!.getBoundingClientRect()
+    const overArea = areaAt(e.clientX, e.clientY)
     carrying.value = {
       id: carry.from.id,
       x: e.clientX - r.left,
       y: e.clientY - r.top,
-      overId: tableAt(e.clientX, e.clientY, carry.from.id)?.id ?? null,
+      overId: overArea ? null : (tableAt(e.clientX, e.clientY, carry.from.id)?.id ?? null),
+      overArea,
     }
     return
   }
@@ -149,10 +169,14 @@ function end() {
   drag = null
   if (!carry) return
   if (carry.active) {
+    // Ignore the click that ends this drag, but only that one (it may never come if the
+    // dragged table left the screen, e.g. after dropping on another area).
     skipClick = true
+    setTimeout(() => (skipClick = false), 0)
     const to = carrying.value?.overId
     const target = to ? props.tables.find((tb) => tb.id === to) : undefined
-    if (target && dropKind(target.id)) emit('drop', carry.from, target)
+    if (carrying.value?.overArea) emit('dropArea', carry.from, carrying.value.overArea)
+    else if (target && dropKind(target.id)) emit('drop', carry.from, target)
   }
   stopCarry()
 }
@@ -160,6 +184,9 @@ function end() {
 const overKind = computed(() => dropKind(carrying.value?.overId ?? null))
 const carriedName = computed(
   () => props.tables.find((tb) => tb.id === carrying.value?.id)?.name ?? '',
+)
+const overAreaName = computed(
+  () => props.otherAreas?.find((a) => a.id === carrying.value?.overArea)?.name ?? '',
 )
 const overName = computed(
   () => props.tables.find((tb) => tb.id === carrying.value?.overId)?.name ?? '',
@@ -299,6 +326,25 @@ function look(tb: DiningTable) {
         />
       </button>
 
+      <!-- While carrying a bill: the other areas, to move it there. -->
+      <div
+        v-if="carrying && otherAreas?.length"
+        class="absolute inset-x-0 top-2 z-10 flex flex-wrap justify-center gap-2 px-2"
+      >
+        <span
+          v-for="a in otherAreas"
+          :key="a.id"
+          :data-drop-area="a.id"
+          class="rounded-full border-2 border-dashed px-4 py-2 text-sm font-semibold shadow-sm transition"
+          :class="
+            carrying.overArea === a.id
+              ? 'border-success bg-success text-primary-ink'
+              : 'border-primary/50 bg-surface text-primary'
+          "
+          >→ {{ a.name }}</span
+        >
+      </div>
+
       <!-- The bill being carried follows the pointer. -->
       <div
         v-if="carrying"
@@ -314,11 +360,13 @@ function look(tb: DiningTable) {
         role="status"
       >
         {{
-          overKind === 'move'
-            ? t('tables.dropMove', { from: carriedName, to: overName })
-            : overKind === 'merge'
-              ? t('tables.dropMerge', { from: carriedName, to: overName })
-              : t('tables.dropHint', { n: carriedName })
+          carrying.overArea
+            ? t('tables.dropArea', { from: carriedName, area: overAreaName })
+            : overKind === 'move'
+              ? t('tables.dropMove', { from: carriedName, to: overName })
+              : overKind === 'merge'
+                ? t('tables.dropMerge', { from: carriedName, to: overName })
+                : t('tables.dropHint', { n: carriedName })
         }}
       </div>
     </div>

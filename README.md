@@ -12,7 +12,7 @@ large touch targets, and a comfortable dark theme.
 - **Options & modifiers**: size, temperature, milk, extras and so on, each with an extra price.
 - **Cart**: quantity steppers, item notes, item and order discounts, dine-in/takeaway/delivery, table number.
 - **Tables**: a floor plan per area (Indoor, Terrace…) showing free tables, open bills with their total and time
-  seated, and a bell when food is ready. Tap a table to start or open its bill. Move a bill to another table by dragging it there (drop it on a table in use to merge, with Undo for a wrong drop), from the table's menu, or from the Sell screen with **Move table**; its kitchen tickets move too.
+  seated, and a bell when food is ready. Tap a table to start or open its bill. Move a bill to another table by dragging it there (drop it on a table in use to merge, or on another area's button to move it between areas; Undo fixes a wrong drop), from the table's menu, or from the Sell screen with **Move table**; its kitchen tickets move too.
   Managers draw the layout by dragging tables (mouse, touch or arrow keys), resizing them, and choosing shape and seats.
 - **Kitchen & bar tickets**: each category goes to a station (Coffee → Bar, Food → Kitchen, Bakery → no ticket).
   **Send** passes new items to the stations; paying sends anything not sent yet. Items removed after sending show as

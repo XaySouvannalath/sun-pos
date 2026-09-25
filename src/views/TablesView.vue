@@ -67,7 +67,7 @@ onBeforeUnmount(() => {
 const billTotal = (h: HeldOrder) => computeTotals(h.lines, h.discount, settings.s).total
 
 /** Move or merge: the bill being moved, and what kind of table to pick. */
-const picking = ref<{ bill: HeldOrder; mode: 'move' | 'merge' } | null>(null)
+const picking = ref<{ bill: HeldOrder; mode: 'move' | 'merge' | 'any' } | null>(null)
 
 const states = computed(() => {
   const out: Record<string, TableState> = {}
@@ -85,7 +85,9 @@ const states = computed(() => {
     state.movable = !!bill && !picking.value
     if (picking.value) {
       const p = picking.value
-      state.disabled = tb.id === p.bill.tableId || (p.mode === 'move' ? !!bill || here : !bill)
+      state.disabled =
+        tb.id === p.bill.tableId ||
+        (p.mode === 'move' ? !!bill || here : p.mode === 'merge' ? !bill : here && !bill)
     }
     out[tb.id] = state
   }
@@ -173,7 +175,8 @@ async function pick(target: DiningTable) {
   const p = picking.value
   if (!p || states.value[target.id]?.disabled) return
   picking.value = null
-  if (p.mode === 'move') await moveBill(p.bill, target)
+  if (p.mode === 'any') await drop(floor.tableById.get(p.bill.tableId!)!, target)
+  else if (p.mode === 'move') await moveBill(p.bill, target)
   else await mergeBill(p.bill, target)
 }
 
@@ -185,6 +188,16 @@ async function drop(from: DiningTable, to: DiningTable) {
   if (cart.heldForTable(to.id)) confirmMerge.value = { bill, target: to }
   else await moveBill(bill, to)
 }
+/** Dropped on another area's button: show that area and let the user tap the table. */
+function dropArea(from: DiningTable, id: string) {
+  const bill = cart.heldForTable(from.id)
+  if (!bill) return
+  areaId.value = id
+  picking.value = { bill, mode: 'any' }
+}
+
+const otherAreas = computed(() => floor.plan.areas.filter((a) => a.id !== areaId.value))
+
 async function doMerge() {
   const c = confirmMerge.value
   confirmMerge.value = null
@@ -386,12 +399,19 @@ onBeforeRouteLeave(() => !dirty.value || window.confirm(t('tables.leaveUnsaved')
       v-if="picking"
       class="flex items-center gap-3 rounded-2xl bg-accent-soft px-4 py-3 text-sm font-medium text-accent"
     >
-      <component :is="picking.mode === 'move' ? ArrowRightLeft : Merge" class="size-5 shrink-0" />
-      <span class="flex-1">{{
-        picking.mode === 'move'
-          ? t('tables.pickMove', { n: picking.bill.table })
-          : t('tables.pickMerge', { n: picking.bill.table })
-      }}</span>
+      <component :is="picking.mode === 'merge' ? Merge : ArrowRightLeft" class="size-5 shrink-0" />
+      <span class="flex-1">
+        {{
+          picking.mode === 'any'
+            ? t('tables.pickAny', { n: picking.bill.table })
+            : picking.mode === 'move'
+              ? t('tables.pickMove', { n: picking.bill.table })
+              : t('tables.pickMerge', { n: picking.bill.table })
+        }}
+        <span v-if="floor.plan.areas.length > 1" class="block text-xs font-normal">{{
+          t('tables.pickOtherArea')
+        }}</span>
+      </span>
       <button class="btn btn-soft btn-sm" @click="picking = null">{{ t('common.cancel') }}</button>
     </div>
 
@@ -401,7 +421,15 @@ onBeforeRouteLeave(() => !dirty.value || window.confirm(t('tables.leaveUnsaved')
     </p>
 
     <div v-else class="grid gap-4" :class="editing && 'lg:grid-cols-[minmax(0,1fr)_18rem]'">
-      <FloorCanvas v-if="!editing" :tables="areaTables" :states="states" @tap="tap" @drop="drop" />
+      <FloorCanvas
+        v-if="!editing"
+        :tables="areaTables"
+        :states="states"
+        :other-areas="otherAreas"
+        @tap="tap"
+        @drop="drop"
+        @drop-area="dropArea"
+      />
       <FloorCanvas
         v-else
         :tables="draftTables"

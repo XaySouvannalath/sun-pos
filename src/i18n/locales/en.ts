@@ -784,6 +784,9 @@ const en = {
     },
   },
   tables: {
+    pickOtherArea: 'To use another area, switch to it with the buttons above.',
+    pickAny: 'Tap a free table to move table {n} there, or a table in use to merge.',
+    dropArea: 'Move {from} to {area}',
     moveOrderHelp: 'Choose the table to move this order to. Its kitchen tickets move with it.',
     moveOrder: 'Move table {n}',
     mergeBody:
