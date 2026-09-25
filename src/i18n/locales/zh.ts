@@ -3,6 +3,7 @@ import type { Messages } from './en'
 
 const zh: Messages = {
   nav: {
+    rates: '汇率',
     sell: '收银',
     orders: '订单',
     shift: '班次',
@@ -111,6 +112,7 @@ const zh: Messages = {
     over: '长款 {amount}',
   },
   cart: {
+    split: '分单',
     orderN: '订单 {n}',
     tableN: '{n} 号桌',
     held: '已挂单：{label}',
@@ -210,6 +212,12 @@ const zh: Messages = {
     barcode: '条码',
   },
   held: {
+    merged: '已将 {n} 张账单并入此订单',
+    mergeN: '合并 {n} 张账单',
+    mergeHelpEmpty: '选择两张或以上挂单，合并为一个订单。',
+    mergeHelp: '选择要并入当前订单的挂单。',
+    mergeTitle: '合并账单',
+    merge: '合并账单',
     title: '挂单',
     discard: '放弃',
     resume: '继续',
@@ -221,6 +229,12 @@ const zh: Messages = {
     qr: '扫码 / 转账',
   },
   payment: {
+    nextGuest: '下一位：客人 {n}',
+    guestPaidChange: '客人 {n} 已付款。找零 {amount}。',
+    guestPaid: '客人 {n} 已付款。',
+    guestOf: '第 {n} 位，共 {total} 位',
+    splitItems: '仅支付所选商品',
+    splitEqually: '{n} 位客人平均分摊 · 共 {total}',
     title: '收款',
     totalDue: '应收金额',
     removePayment: '移除这笔付款',
@@ -234,6 +248,9 @@ const zh: Messages = {
     complete: '完成交易',
   },
   receipt: {
+    totalIn: '合计 {currency}',
+    rates: '汇率（{date}）',
+    splitWays: '{n} 位客人平均分摊',
     order: '订单 #{n}',
     table: '{n} 号桌',
     staff: '员工：{name}',
@@ -392,6 +409,9 @@ const zh: Messages = {
     noData: '暂无数据。',
   },
   settings: {
+    manageRates: '汇率',
+    receiptRatesHelp: '在每张收据底部打印当日汇率和各货币的合计。',
+    receiptRates: '在收据上显示汇率',
     saved: '设置已保存',
     theme: {
       light: '浅色',
@@ -464,6 +484,7 @@ const zh: Messages = {
     role: '角色',
   },
   currency: {
+    CNY: '人民币 (¥)',
     USD: '美元 ($)',
     LAK: '老挝基普 (₭)',
     THB: '泰铢 (฿)',
@@ -684,6 +705,51 @@ const zh: Messages = {
     INSUFFICIENT_PAYMENT: '付款金额不足',
     OUT_OF_STOCK: '库存不足，无法完成此订单',
     INVALID_BACKUP: '这不是 Sun POS 的备份文件',
+  },
+  split: {
+    title: '分单',
+    byItems: '按商品',
+    equally: '平均分摊',
+    itemsHelp: '选择这位客人要付的商品，其余商品保留在账单上。',
+    selected: '已选 {n} 件',
+    allPicked: '已全部选中，将按整单收款。',
+    charge: '收款 {amount}',
+    guests: '位客人',
+    guestsHelp: '每位客人依次支付相同金额，四舍五入的差额由最后一位支付。',
+    guestN: '客人 {n}',
+    perGuest: '每人 {amount}',
+    start: '开始收款',
+    tooSmall: '总额太小，无法分成这么多份。',
+  },
+  rates: {
+    title: '汇率',
+    subtitle:
+      '设置每天的汇率。每笔销售都会保存付款时的汇率，因此旧收据的金额始终正确。未设置汇率的日子使用之前最近的汇率。',
+    today: '今日汇率',
+    todayBadge: '今天',
+    forDate: '{date} 的汇率',
+    date: '日期',
+    storeCurrency: '店铺货币：{currency}',
+    copied: '已填入 {date} 的汇率。修改有变化的部分后保存。',
+    setToday: '设置今日汇率',
+    currency: '货币',
+    rate: '汇率',
+    flip: '切换方向',
+    addCurrency: '添加货币',
+    save: '保存汇率',
+    saved: '已保存 {date} 的汇率',
+    deleted: '已删除 {date} 的汇率',
+    deleteTitle: '删除 {date} 的汇率？',
+    deleteBody: '已完成的销售保留原汇率。新销售将使用之前最近的汇率。',
+    history: '历史记录',
+    historyEmpty: '尚未保存汇率。',
+    setBy: '{name} 设置 · {time}',
+    receiptOn: '收据会显示这些汇率及各货币的合计。如需关闭，请前往',
+    receiptOff: '收据不显示汇率。如需开启，请前往',
+    errors: {
+      rate: '请为 {currency} 输入大于 0 的汇率',
+      empty: '请至少添加一种货币',
+    },
   },
 }
 

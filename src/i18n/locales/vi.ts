@@ -3,6 +3,7 @@ import type { Messages } from './en'
 
 const vi: Messages = {
   nav: {
+    rates: 'Tỷ giá',
     sell: 'Bán hàng',
     orders: 'Đơn hàng',
     shift: 'Ca làm',
@@ -112,6 +113,7 @@ const vi: Messages = {
     over: 'Thừa {amount}',
   },
   cart: {
+    split: 'Tách đơn',
     orderN: 'Đơn {n}',
     tableN: 'Bàn {n}',
     held: 'Đã giữ: {label}',
@@ -211,6 +213,12 @@ const vi: Messages = {
     barcode: 'Mã vạch',
   },
   held: {
+    merged: 'Đã gộp {n} đơn vào đơn này',
+    mergeN: 'Gộp {n} đơn',
+    mergeHelpEmpty: 'Chọn từ hai đơn đang giữ trở lên để gộp thành một đơn.',
+    mergeHelp: 'Chọn các đơn đang giữ để gộp vào đơn hiện tại.',
+    mergeTitle: 'Gộp đơn',
+    merge: 'Gộp đơn',
     title: 'Đơn đang giữ',
     discard: 'Bỏ',
     resume: 'Tiếp tục',
@@ -222,6 +230,12 @@ const vi: Messages = {
     qr: 'QR / Chuyển khoản',
   },
   payment: {
+    nextGuest: 'Tiếp: khách {n}',
+    guestPaidChange: 'Khách {n} đã trả. Thối lại {amount}.',
+    guestPaid: 'Khách {n} đã trả.',
+    guestOf: 'Khách {n} / {total}',
+    splitItems: 'Chỉ thanh toán các món đã chọn',
+    splitEqually: 'Chia đều cho {n} khách · tổng {total}',
     title: 'Thanh toán',
     totalDue: 'Cần thanh toán',
     removePayment: 'Xóa khoản thanh toán',
@@ -235,6 +249,9 @@ const vi: Messages = {
     complete: 'Hoàn tất bán hàng',
   },
   receipt: {
+    totalIn: 'Tổng bằng {currency}',
+    rates: 'Tỷ giá ngày {date}',
+    splitWays: 'Chia đều cho {n} khách',
     order: 'Đơn #{n}',
     table: 'Bàn {n}',
     staff: 'Nhân viên: {name}',
@@ -394,6 +411,9 @@ const vi: Messages = {
     noData: 'Không có dữ liệu.',
   },
   settings: {
+    manageRates: 'Tỷ giá',
+    receiptRatesHelp: 'In tỷ giá trong ngày và tổng tiền theo từng loại tiền ở cuối mỗi hóa đơn.',
+    receiptRates: 'Hiện tỷ giá trên hóa đơn',
     saved: 'Đã lưu cài đặt',
     theme: {
       light: 'Sáng',
@@ -471,6 +491,7 @@ const vi: Messages = {
     role: 'Vai trò',
   },
   currency: {
+    CNY: 'Nhân dân tệ (¥)',
     USD: 'Đô la Mỹ ($)',
     LAK: 'Kíp Lào (₭)',
     THB: 'Baht Thái (฿)',
@@ -701,6 +722,52 @@ const vi: Messages = {
     INSUFFICIENT_PAYMENT: 'Số tiền thanh toán chưa đủ',
     OUT_OF_STOCK: 'Không đủ hàng trong kho cho đơn này',
     INVALID_BACKUP: 'Đây không phải tệp sao lưu của Sun POS',
+  },
+  split: {
+    title: 'Tách đơn',
+    byItems: 'Theo món',
+    equally: 'Chia đều',
+    itemsHelp: 'Chọn các món khách này trả. Các món còn lại vẫn ở trong đơn.',
+    selected: 'Đã chọn {n} món',
+    allPicked: 'Đã chọn tất cả, sẽ thu cả đơn.',
+    charge: 'Thu {amount}',
+    guests: 'khách',
+    guestsHelp:
+      'Mỗi khách lần lượt trả phần bằng nhau. Phần chênh lệch do làm tròn tính cho khách cuối.',
+    guestN: 'Khách {n}',
+    perGuest: 'Mỗi người {amount}',
+    start: 'Bắt đầu thanh toán',
+    tooSmall: 'Tổng tiền quá nhỏ để chia cho ngần ấy người.',
+  },
+  rates: {
+    title: 'Tỷ giá',
+    subtitle:
+      'Đặt tỷ giá cho từng ngày. Mỗi đơn lưu tỷ giá tại thời điểm thanh toán, nên hóa đơn cũ luôn đúng số tiền. Ngày chưa đặt tỷ giá sẽ dùng tỷ giá gần nhất trước đó.',
+    today: 'Tỷ giá hôm nay',
+    todayBadge: 'Hôm nay',
+    forDate: 'Tỷ giá ngày {date}',
+    date: 'Ngày',
+    storeCurrency: 'Tiền tệ cửa hàng: {currency}',
+    copied: 'Đã điền sẵn từ tỷ giá ngày {date}. Sửa phần thay đổi rồi lưu.',
+    setToday: 'Đặt tỷ giá hôm nay',
+    currency: 'Tiền tệ',
+    rate: 'Tỷ giá',
+    flip: 'Đổi chiều',
+    addCurrency: 'Thêm tiền tệ',
+    save: 'Lưu tỷ giá',
+    saved: 'Đã lưu tỷ giá ngày {date}',
+    deleted: 'Đã xóa tỷ giá ngày {date}',
+    deleteTitle: 'Xóa tỷ giá ngày {date}?',
+    deleteBody: 'Các đơn đã bán giữ nguyên tỷ giá. Đơn mới sẽ dùng tỷ giá gần nhất trước đó.',
+    history: 'Lịch sử',
+    historyEmpty: 'Chưa có tỷ giá nào.',
+    setBy: '{name} đặt · {time}',
+    receiptOn: 'Hóa đơn hiển thị các tỷ giá này và tổng tiền theo từng loại tiền. Để tắt, vào',
+    receiptOff: 'Hóa đơn không hiển thị tỷ giá. Để bật, vào',
+    errors: {
+      rate: 'Nhập tỷ giá lớn hơn 0 cho {currency}',
+      empty: 'Thêm ít nhất một loại tiền',
+    },
   },
 }
 

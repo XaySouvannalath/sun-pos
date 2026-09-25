@@ -81,6 +81,8 @@ export type PaymentMethod = 'cash' | 'card' | 'qr'
 export interface Payment {
   method: PaymentMethod
   amount: number
+  /** When a bill is split equally: which guest (1, 2, …) made this payment. */
+  guest?: number
 }
 
 export interface Totals {
@@ -118,6 +120,10 @@ export interface Order extends Totals {
   status: 'completed' | 'refunded'
   refund: Refund | null
   pointsEarned: number
+  /** Exchange rates in effect when the order was paid, printed on the receipt. */
+  exchangeRates?: RateSnapshot | null
+  /** Set when the bill was split equally: the number of guests sharing it. */
+  splitWays?: number
 }
 
 export interface HeldOrder {
@@ -194,6 +200,43 @@ export interface Settings {
   /** Loyalty points earned per 1 unit of currency spent. */
   pointsPerUnit: number
   topSellerDays: number
+  /** Print the day's exchange rates and converted total on receipts. */
+  receiptShowRates: boolean
+}
+
+// ----- Exchange rates -----
+
+/** `rate` is how many units of the store currency one unit of `currency` is worth. */
+export interface RateEntry {
+  currency: string
+  rate: number
+}
+
+/** The exchange rates set for one day. */
+export interface ExchangeRateSet {
+  /** Local date, YYYY-MM-DD. */
+  date: string
+  /** Store currency the rates are relative to. */
+  base: string
+  rates: RateEntry[]
+  updatedBy: string
+  updatedAt: number
+}
+
+export interface RateSnapshot {
+  date: string
+  base: string
+  rates: RateEntry[]
+}
+
+/** The rates to use on a day: that day's set, or the most recent earlier one. */
+export interface EffectiveRates {
+  /** The day asked for. */
+  date: string
+  /** The day the rates were set, or null when no rates are set yet. */
+  effectiveDate: string | null
+  base: string
+  rates: RateEntry[]
 }
 
 // ---------------------------------------------------------------------------
@@ -233,6 +276,8 @@ export interface CheckoutRequest {
   orderDiscount: Discount
   lines: CheckoutLine[]
   payments: Payment[]
+  /** Split equally: this payment is one guest's share of a bill shared by this many guests. */
+  splitWays?: number
 }
 
 export type HeldOrderInput = Omit<HeldOrder, 'id' | 'heldAt'>
@@ -324,6 +369,7 @@ export interface DbData {
   orders: Order[]
   shifts: Shift[]
   held: HeldOrder[]
+  exchangeRates: ExchangeRateSet[]
 }
 
 export interface BackupFile {

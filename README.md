@@ -12,7 +12,13 @@ large touch targets, and a comfortable dark theme.
 - **Options & modifiers**: size, temperature, milk, extras and so on, each with an extra price.
 - **Cart**: quantity steppers, item notes, item and order discounts, dine-in/takeaway/delivery, table number.
 - **Hold & resume** orders to serve the next customer.
-- **Payments**: cash (quick amounts and change), card, QR/transfer, and split payments.
+- **Split bill**: by items (each guest pays for what they had; the rest stays on the bill) or equally between 2–20
+  guests, who pay one after another with any method.
+- **Merge bill**: combine held orders (for example tables 5 and 6) into one order.
+- **Payments**: cash (quick amounts and change), card, QR/transfer, and several payments on one order.
+- **Exchange rates**: managers set the rates each day (USD, LAK, THB, CNY, EUR, VND) with a history. The payment screen
+  shows the total in each currency, and every sale keeps its day's rates. Receipts show the rates and converted totals;
+  turn this off in Settings.
 - **Receipts**: printable 80 mm receipts, with reprint from order history.
 - **Orders**: history, search and filters, refunds (restock optional), CSV export.
 - **Shifts & cash drawer**: opening float, cash in/out, expected cash, and end-of-day count with over/short.
@@ -22,7 +28,7 @@ large touch targets, and a comfortable dark theme.
 - **Reports**: sales, orders, average order, estimated profit, sales by hour or day, best sellers, payment
   methods, categories, order types and staff.
 - **Staff & roles**: PIN login. Managers get everything; cashiers can sell, run shifts and manage customers.
-- **Settings**: store info, currency (USD, LAK, THB, EUR, VND), tax, service charge, and JSON backup/restore.
+- **Settings**: store info, currency (USD, LAK, THB, CNY, EUR, VND), tax, service charge, and JSON backup/restore.
 - **Languages**: English, Lao (ລາວ), Chinese (中文) and Vietnamese (Tiếng Việt), chosen per device on the lock
   screen or in Settings. Dates, times and error messages follow the language. A Lao font is bundled, so Lao
   displays correctly offline.
@@ -55,7 +61,7 @@ npm run build:preview  # single-file preview at dist-preview/sun-pos.html (no pr
 
 ## Backend and API
 
-The frontend calls the REST API described in **[docs/API.md](docs/API.md)** (52 endpoints).
+The frontend calls the REST API described in **[docs/API.md](docs/API.md)** (56 endpoints).
 
 - **Out of the box:** `npm run dev` serves a mock backend at `/api/v1`. Its starting data is in
   `src/mock/data/*.json`, and changes are saved to `.mock-db.json` (git-ignored).

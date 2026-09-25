@@ -73,4 +73,62 @@ describe('stores over the API', () => {
     const { useOrdersStore } = await import('@/stores/orders')
     expect(useOrdersStore().topSellers.length).toBeGreaterThan(0)
   })
+
+  it('splits a bill by items: charges the picked items and keeps the rest', async () => {
+    await signedIn()
+    const { useCartStore } = await import('@/stores/cart')
+    const { useCatalogStore } = await import('@/stores/catalog')
+    const { useShiftStore } = await import('@/stores/shift')
+    const cart = useCartStore()
+    const catalog = useCatalogStore()
+    await useShiftStore().open(0)
+
+    const croissant = catalog.products.find((p) => p.name === 'Butter Croissant')!
+    cart.add(croissant, [], 3)
+    cart.state.discount = { type: 'amount', value: 1.5 }
+    const id = cart.state.lines[0]!.id!
+
+    // 1 of 3 croissants: a third of the $1.50 discount goes with it.
+    const part = cart.selectionTotals({ [id]: 1 })
+    expect(part).toMatchObject({ subtotal: 2.75, discount: 0.5 })
+    const order = await cart.checkout([{ method: 'card', amount: part.total }], {
+      selection: { [id]: 1 },
+    })
+    expect(order).toMatchObject({ itemCount: 1, discount: 0.5, total: part.total })
+    expect(cart.state.lines[0]!.qty).toBe(2)
+    expect(cart.state.discount).toEqual({ type: 'amount', value: 1 })
+
+    await cart.checkout([{ method: 'cash', amount: 100 }], { selection: { [id]: 2 } })
+    expect(cart.isEmpty).toBe(true)
+  })
+
+  it('splits a bill equally between guests', async () => {
+    const { equalShares } = await import('@/stores/cart')
+    expect(equalShares(10, 3, 2)).toEqual([3.33, 3.33, 3.34])
+    expect(equalShares(10000, 3, 0)).toEqual([3333, 3333, 3334])
+  })
+
+  it('merges held bills into the current order', async () => {
+    await signedIn()
+    const { useCartStore } = await import('@/stores/cart')
+    const { useCatalogStore } = await import('@/stores/catalog')
+    const cart = useCartStore()
+    const croissant = useCatalogStore().products.find((p) => p.name === 'Butter Croissant')!
+
+    cart.add(croissant)
+    cart.state.table = '5'
+    cart.state.discount = { type: 'amount', value: 1 }
+    await cart.hold('Table 5')
+    cart.add(croissant, [], 2)
+    cart.state.table = '6'
+    cart.state.discount = { type: 'amount', value: 2 }
+    await cart.hold('Table 6')
+
+    await cart.mergeHeld(cart.held.map((h) => h.id))
+    expect(cart.held).toHaveLength(0)
+    expect(cart.state.lines).toHaveLength(1)
+    expect(cart.state.lines[0]!.qty).toBe(3)
+    expect(cart.state.table).toMatch(/^[56] \+ [56]$/)
+    expect(cart.state.discount).toEqual({ type: 'amount', value: 3 })
+  })
 })

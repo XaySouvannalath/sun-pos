@@ -4,6 +4,7 @@
 
 const en = {
   nav: {
+    rates: 'Rates',
     sell: 'Sell',
     orders: 'Orders',
     shift: 'Shift',
@@ -113,6 +114,7 @@ const en = {
     over: 'Over by {amount}',
   },
   cart: {
+    split: 'Split',
     orderN: 'Order {n}',
     tableN: 'Table {n}',
     held: 'Held: {label}',
@@ -212,6 +214,12 @@ const en = {
     barcode: 'Barcode',
   },
   held: {
+    merged: 'Merged {n} bill into this order | Merged {n} bills into this order',
+    mergeN: 'Merge {n} bills',
+    mergeHelpEmpty: 'Choose two or more held bills to combine into one order.',
+    mergeHelp: 'Choose the held bills to add to the order on screen.',
+    mergeTitle: 'Merge bills',
+    merge: 'Merge bills',
     title: 'Held orders',
     discard: 'Discard',
     resume: 'Resume',
@@ -223,6 +231,12 @@ const en = {
     qr: 'QR / Transfer',
   },
   payment: {
+    nextGuest: 'Next: guest {n}',
+    guestPaidChange: 'Guest {n} has paid. Give {amount} change.',
+    guestPaid: 'Guest {n} has paid.',
+    guestOf: 'Guest {n} of {total}',
+    splitItems: 'Paying for the selected items only',
+    splitEqually: 'Split equally between {n} guests · total {total}',
     title: 'Payment',
     totalDue: 'Total due',
     removePayment: 'Remove payment',
@@ -236,6 +250,9 @@ const en = {
     complete: 'Complete sale',
   },
   receipt: {
+    totalIn: 'Total in {currency}',
+    rates: 'Exchange rates of {date}',
+    splitWays: 'Split equally between {n} guests',
     order: 'Order #{n}',
     table: 'T{n}',
     staff: 'Staff: {name}',
@@ -395,6 +412,10 @@ const en = {
     noData: 'No data.',
   },
   settings: {
+    manageRates: 'Exchange rates',
+    receiptRatesHelp:
+      "Prints the day's rates and the total in each currency at the bottom of every receipt.",
+    receiptRates: 'Show exchange rates on receipts',
     saved: 'Settings saved',
     theme: {
       light: 'Light',
@@ -472,6 +493,7 @@ const en = {
     role: 'Role',
   },
   currency: {
+    CNY: 'Chinese Yuan (¥)',
     USD: 'US Dollar ($)',
     LAK: 'Lao Kip (₭)',
     THB: 'Thai Baht (฿)',
@@ -702,6 +724,53 @@ const en = {
     INSUFFICIENT_PAYMENT: 'The payment does not cover the total',
     OUT_OF_STOCK: 'Not enough stock for this order',
     INVALID_BACKUP: 'This is not a Sun POS backup file',
+  },
+  split: {
+    title: 'Split bill',
+    byItems: 'By items',
+    equally: 'Equally',
+    itemsHelp: 'Choose what this guest pays for. The other items stay on the bill.',
+    selected: '{n} item selected | {n} items selected',
+    allPicked: 'Everything is selected, so this charges the whole bill.',
+    charge: 'Charge {amount}',
+    guests: 'guests',
+    guestsHelp:
+      'Each guest pays an equal share, one after another. Any rounding difference goes to the last guest.',
+    guestN: 'Guest {n}',
+    perGuest: '{amount} each',
+    start: 'Start payment',
+    tooSmall: 'The total is too small to split this many ways.',
+  },
+  rates: {
+    title: 'Exchange rates',
+    subtitle:
+      'Set the rates for each day. Every sale keeps the rates in effect when it was paid, so old receipts always show the right amounts. On a day without rates, the latest earlier rates are used.',
+    today: "Today's rates",
+    todayBadge: 'Today',
+    forDate: 'Rates for {date}',
+    date: 'Date',
+    storeCurrency: 'Store currency: {currency}',
+    copied: 'Filled in from the rates of {date}. Change what is different, then save.',
+    setToday: "Set today's rates",
+    currency: 'Currency',
+    rate: 'Rate',
+    flip: 'Swap direction',
+    addCurrency: 'Add currency',
+    save: 'Save rates',
+    saved: 'Rates for {date} saved',
+    deleted: 'Rates for {date} deleted',
+    deleteTitle: 'Delete the rates for {date}?',
+    deleteBody:
+      'Sales already made keep the rates they were paid at. New sales will use the latest earlier rates.',
+    history: 'History',
+    historyEmpty: 'No rates saved yet.',
+    setBy: 'Set by {name} · {time}',
+    receiptOn: 'Receipts show these rates and the total in each currency. To turn this off, go to',
+    receiptOff: 'Receipts do not show exchange rates. To turn this on, go to',
+    errors: {
+      rate: 'Enter a rate above 0 for {currency}',
+      empty: 'Add at least one currency',
+    },
   },
 }
 

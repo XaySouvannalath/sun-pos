@@ -10,6 +10,7 @@ import type {
   CheckoutRequest,
   Customer,
   DbData,
+  ExchangeRateSet,
   HeldOrder,
   Order,
   OrderLine,
@@ -17,6 +18,7 @@ import type {
   Payment,
   PaymentMethod,
   Product,
+  RateEntry,
   Role,
   SelectedOption,
   Settings,
@@ -27,6 +29,7 @@ import type {
   Tint,
 } from '../types.ts'
 import { computeTotals, lineKey, roundTo } from '../utils/pos.ts'
+import { effectiveRates, isDateKey, localDate } from '../utils/rates.ts'
 import type { Db } from './db.ts'
 import {
   breakdown,
@@ -284,8 +287,58 @@ export function createApi(db: Db) {
       next.pointsPerUnit = num(body.pointsPerUnit, 'pointsPerUnit', { min: 0 })
     if (body.topSellerDays !== undefined)
       next.topSellerDays = num(body.topSellerDays, 'topSellerDays', { min: 1, max: 365, int: true })
+    if (body.receiptShowRates !== undefined) {
+      if (typeof body.receiptShowRates !== 'boolean')
+        throw bad('receiptShowRates must be true or false')
+      next.receiptShowRates = body.receiptShowRates
+    }
     d().settings = next
     return next
+  })
+
+  // ----- Exchange rates ----------------------------------------------------
+
+  const ratesOn = (date: string) => effectiveRates(d().exchangeRates, d().settings.currency, date)
+
+  function dateParam(v: string | undefined, field: string) {
+    if (!v) return localDate()
+    if (!isDateKey(v)) throw bad(`${field} must be a date like 2025-01-31`)
+    return v
+  }
+
+  route('GET', '/exchange-rates', 'staff', ({ query }) => ratesOn(dateParam(query.date, 'date')))
+
+  route('GET', '/exchange-rates/history', 'staff', ({ query }) => {
+    const limit = num(query.limit, 'limit', { min: 1, max: 366, int: true, fallback: 30 })
+    return [...d().exchangeRates].sort((a, b) => b.date.localeCompare(a.date)).slice(0, limit)
+  })
+
+  route('PUT', '/exchange-rates/:date', 'admin', ({ params, body, user }) => {
+    const date = dateParam(params.date, 'date')
+    const base = d().settings.currency
+    const seen = new Set<string>()
+    const rates = arr(body.rates, 'rates').map((raw, i): RateEntry => {
+      const r = obj(raw, `rates[${i}]`)
+      const currency = str(r.currency, `rates[${i}].currency`, { required: true }).toUpperCase()
+      if (!/^[A-Z]{3}$/.test(currency))
+        throw bad(`rates[${i}].currency must be a 3-letter ISO code`)
+      if (currency === base) throw bad(`rates[${i}]: ${base} is the store currency`)
+      if (seen.has(currency)) throw bad(`rates[${i}]: ${currency} is listed twice`)
+      seen.add(currency)
+      const rate = num(r.rate, `rates[${i}].rate`)
+      if (!(rate > 0)) throw bad(`rates[${i}].rate must be more than 0`)
+      return { currency, rate }
+    })
+    if (!rates.length) throw bad('Add at least one rate')
+    const set: ExchangeRateSet = { date, base, rates, updatedBy: user!.name, updatedAt: Date.now() }
+    d().exchangeRates = [set, ...d().exchangeRates.filter((x) => x.date !== date)]
+    return set
+  })
+
+  route('DELETE', '/exchange-rates/:date', 'admin', ({ params }) => {
+    if (!d().exchangeRates.some((x) => x.date === params.date)) throw notFound('Exchange rates')
+    d().exchangeRates = d().exchangeRates.filter((x) => x.date !== params.date)
+    return null
   })
 
   // ----- Categories --------------------------------------------------------
@@ -534,12 +587,23 @@ export function createApi(db: Db) {
     if (customerId && !customer) throw bad('customerId does not exist')
 
     const totals = computeTotals(lines, orderDiscount, d().settings)
+    const splitWays =
+      body.splitWays === undefined || body.splitWays === null
+        ? undefined
+        : num(body.splitWays, 'splitWays', { min: 2, max: 20, int: true })
     const payments: Payment[] = arr(body.payments, 'payments').map((p, i) => {
       const pay = obj(p, `payments[${i}]`)
-      return {
+      const payment: Payment = {
         method: oneOf(pay.method, `payments[${i}].method`, METHODS),
         amount: round(num(pay.amount, `payments[${i}].amount`, { min: 0.000001 })),
       }
+      if (splitWays && pay.guest !== undefined)
+        payment.guest = num(pay.guest, `payments[${i}].guest`, {
+          min: 1,
+          max: splitWays,
+          int: true,
+        })
+      return payment
     })
     const tendered = round(payments.reduce((s, p) => s + p.amount, 0))
     const nonCash = payments.filter((p) => p.method !== 'cash').reduce((s, p) => s + p.amount, 0)
@@ -569,6 +633,12 @@ export function createApi(db: Db) {
       refund: null,
       pointsEarned: customer ? Math.floor(totals.total * d().settings.pointsPerUnit) : 0,
     }
+    // Keep the day's rates with the sale, so the receipt shows the rates it was paid at.
+    const rates = ratesOn(localDate(order.createdAt))
+    order.exchangeRates = rates.effectiveDate
+      ? { date: rates.effectiveDate, base: rates.base, rates: rates.rates }
+      : null
+    if (splitWays) order.splitWays = splitWays
     d().orders.unshift(order)
     for (const l of lines) logStock(l.productId, -l.qty, `Sale #${order.number}`, user!.name)
     if (customer) {
@@ -1125,6 +1195,7 @@ export function createApi(db: Db) {
       'orders',
       'shifts',
       'held',
+      'exchangeRates',
     ] as const
     const next = { ...d() } as DbData
     for (const k of keys) if (data[k] !== undefined) (next[k] as unknown[]) = arr(data[k], k)

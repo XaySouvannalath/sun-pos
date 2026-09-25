@@ -1,13 +1,23 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { languages, t } from '@/i18n'
-import { Plus, Pencil, Trash2, Download, Upload, Crown, FileSpreadsheet } from 'lucide-vue-next'
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  Download,
+  Upload,
+  Crown,
+  FileSpreadsheet,
+  ArrowRightLeft,
+} from 'lucide-vue-next'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import { api } from '@/api'
 import { useSettingsStore } from '@/stores/settings'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
 import { useToastStore } from '@/stores/toast'
+import { useRatesStore } from '@/stores/rates'
 import { canDownload } from '@/utils/env'
 import { downloadJson } from '@/utils/download'
 import { clone } from '@/utils/pos'
@@ -32,7 +42,10 @@ const saving = ref(false)
 async function saveSettings() {
   saving.value = true
   try {
+    const currencyChanged = form.value.currency !== settings.s.currency
     await settings.save(form.value)
+    // Rates are relative to the store currency.
+    if (currencyChanged) void useRatesStore().load()
     toast.show(t('settings.saved'), 'success')
   } finally {
     saving.value = false
@@ -71,6 +84,7 @@ const currencies = [
   { code: 'USD', locale: 'en-US', decimals: 2 },
   { code: 'LAK', locale: 'lo-LA', decimals: 0 },
   { code: 'THB', locale: 'th-TH', decimals: 2 },
+  { code: 'CNY', locale: 'zh-CN', decimals: 2 },
   { code: 'EUR', locale: 'de-DE', decimals: 2 },
   { code: 'VND', locale: 'vi-VN', decimals: 0 },
 ]
@@ -229,7 +243,7 @@ const confirmText = computed(() => ({
             @change="setCurrency(($event.target as HTMLSelectElement).value)"
           >
             <option v-for="c in currencies" :key="c.code" :value="c.code">
-              {{ t(`currency.${c.code as 'USD' | 'LAK' | 'THB' | 'EUR' | 'VND'}`) }}
+              {{ t(`currency.${c.code as 'USD' | 'LAK' | 'THB' | 'CNY' | 'EUR' | 'VND'}`) }}
             </option>
           </select>
           <p class="mt-1 text-xs text-ink-muted">
@@ -262,6 +276,29 @@ const confirmText = computed(() => ({
             class="input"
           />
         </div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-3 rounded-2xl bg-surface-2 p-4">
+        <div class="min-w-0 flex-1">
+          <p id="s-rates-label" class="text-sm font-semibold">{{ t('settings.receiptRates') }}</p>
+          <p class="text-xs text-ink-muted">{{ t('settings.receiptRatesHelp') }}</p>
+        </div>
+        <RouterLink to="/rates" class="btn btn-outline btn-sm">
+          <ArrowRightLeft class="size-4" /> {{ t('settings.manageRates') }}
+        </RouterLink>
+        <button
+          role="switch"
+          :aria-checked="form.receiptShowRates"
+          aria-labelledby="s-rates-label"
+          class="relative h-7 w-12 shrink-0 rounded-full transition"
+          :class="form.receiptShowRates ? 'bg-primary' : 'bg-line'"
+          @click="form.receiptShowRates = !form.receiptShowRates"
+        >
+          <span
+            class="absolute top-1 left-1 size-5 rounded-full bg-surface shadow transition"
+            :class="form.receiptShowRates && 'translate-x-5'"
+          />
+        </button>
       </div>
     </section>
 

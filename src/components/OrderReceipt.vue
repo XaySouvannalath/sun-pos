@@ -1,14 +1,29 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { fmtFull, t } from '@/i18n'
+import { fmtDay, fmtFull, t } from '@/i18n'
 import { useSettingsStore } from '@/stores/settings'
 import { useCustomersStore } from '@/stores/customers'
 import { lineTotal } from '@/utils/pos'
+import { convert, ratePair } from '@/utils/rates'
 import type { Order } from '@/types'
 
 const props = defineProps<{ order: Order }>()
 const settings = useSettingsStore()
 const customers = useCustomersStore()
+
+/** Rates saved with the order, shown when the receipt setting is on. */
+const rates = computed(() => {
+  const snap = props.order.exchangeRates
+  if (!snap?.rates.length || !settings.s.receiptShowRates) return null
+  return {
+    date: fmtDay(new Date(`${snap.date}T12:00:00`).getTime()),
+    rows: snap.rates.map((r) => ({
+      currency: r.currency,
+      total: settings.moneyIn(convert(props.order.total, r), r.currency),
+      pair: ratePair(snap.base, r),
+    })),
+  }
+})
 
 const customer = computed(() =>
   props.order.customerId ? customers.byId.get(props.order.customerId) : undefined,
@@ -74,8 +89,13 @@ const customer = computed(() =>
       ><span>{{ settings.money(order.total) }}</span>
     </div>
     <div class="my-2 border-t border-dashed border-neutral-400" />
+    <p v-if="order.splitWays" class="mb-1">
+      {{ t('receipt.splitWays', { n: order.splitWays }) }}
+    </p>
     <div v-for="(p, i) in order.payments" :key="i" class="flex justify-between">
-      <span>{{ t(`payMethod.${p.method}`) }}</span
+      <span
+        >{{ p.guest ? `${t('split.guestN', { n: p.guest })} · ` : ''
+        }}{{ t(`payMethod.${p.method}`) }}</span
       ><span>{{ settings.money(p.amount) }}</span>
     </div>
     <div v-if="order.change" class="flex justify-between">
@@ -86,6 +106,20 @@ const customer = computed(() =>
       {{ t('receipt.points', { n: order.pointsEarned }) }}
     </p>
     <p v-if="order.note" class="mt-1">{{ t('receipt.note', { note: order.note }) }}</p>
+
+    <template v-if="rates">
+      <div class="my-2 border-t border-dashed border-neutral-400" />
+      <p>{{ t('receipt.rates', { date: rates.date }) }}</p>
+      <div v-for="r in rates.rows" :key="r.currency">
+        <div class="flex justify-between font-bold">
+          <span>{{ t('receipt.totalIn', { currency: r.currency }) }}</span
+          ><span>{{ r.total }}</span>
+        </div>
+        <p class="pl-4 text-neutral-500">
+          1 {{ r.pair.one }} = {{ settings.rateNumber(r.pair.value) }} {{ r.pair.other }}
+        </p>
+      </div>
+    </template>
 
     <p v-if="settings.s.receiptFooter" class="mt-3 text-center">{{ settings.s.receiptFooter }}</p>
   </div>

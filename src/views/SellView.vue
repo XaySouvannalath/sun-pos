@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { t } from '@/i18n'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { Search, ScanBarcode, ShoppingCart, Wallet, X } from 'lucide-vue-next'
+import { ArrowRightLeft, Search, ScanBarcode, ShoppingCart, Wallet, X } from 'lucide-vue-next'
 import ProductCard from '@/components/sell/ProductCard.vue'
 import TopSellers from '@/components/sell/TopSellers.vue'
 import OptionPicker from '@/components/sell/OptionPicker.vue'
@@ -10,7 +10,9 @@ import PaymentModal from '@/components/sell/PaymentModal.vue'
 import ReceiptModal from '@/components/ReceiptModal.vue'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import { useCatalogStore } from '@/stores/catalog'
-import { useCartStore } from '@/stores/cart'
+import { useCartStore, type CheckoutOptions } from '@/stores/cart'
+import { useAuthStore } from '@/stores/auth'
+import { useRatesStore } from '@/stores/rates'
 import { useShiftStore } from '@/stores/shift'
 import { useSettingsStore } from '@/stores/settings'
 import { useToastStore } from '@/stores/toast'
@@ -21,6 +23,8 @@ import type { Order, Product, SelectedOption } from '@/types'
 const catalog = useCatalogStore()
 const cart = useCartStore()
 const shift = useShiftStore()
+const auth = useAuthStore()
+const rates = useRatesStore()
 const settings = useSettingsStore()
 const toast = useToastStore()
 
@@ -99,8 +103,12 @@ function onSearchEnter() {
   }
 }
 
-function startPayment() {
+// Split bill: what the next payment covers (nothing set = the whole order).
+const payFor = ref<CheckoutOptions>({})
+
+function startPayment(opts: CheckoutOptions = {}) {
   if (cart.isEmpty) return
+  payFor.value = opts
   if (!shift.current) {
     shiftOpen.value = true
     return
@@ -166,6 +174,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
           class="btn btn-sm hidden bg-accent-soft text-accent sm:inline-flex"
         >
           <Wallet class="size-4" /> {{ t('sell.noOpenShift') }}
+        </RouterLink>
+        <RouterLink
+          v-if="auth.isAdmin && rates.missingToday"
+          to="/rates"
+          class="btn btn-sm hidden bg-accent-soft text-accent sm:inline-flex"
+        >
+          <ArrowRightLeft class="size-4" /> {{ t('rates.setToday') }}
         </RouterLink>
       </div>
 
@@ -250,7 +265,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
     </Teleport>
 
     <OptionPicker v-model="pickerOpen" :product="pickerProduct" @add="addWithOptions" />
-    <PaymentModal v-model="payOpen" @paid="onPaid" />
+    <PaymentModal
+      v-model="payOpen"
+      :selection="payFor.selection"
+      :split-ways="payFor.splitWays"
+      @paid="onPaid"
+    />
     <ReceiptModal v-model="receiptOpen" :order="lastOrder" just-paid />
 
     <BaseModal v-model="shiftOpen" :title="t('sell.openShiftFirst')" size="sm">

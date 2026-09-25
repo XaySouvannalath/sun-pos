@@ -16,11 +16,13 @@ import {
   ShoppingCart,
   X,
   Star,
+  Split,
 } from 'lucide-vue-next'
 import LineEditor from './LineEditor.vue'
 import DiscountModal from './DiscountModal.vue'
 import CustomerPicker from './CustomerPicker.vue'
 import HeldOrders from './HeldOrders.vue'
+import SplitBillModal from './SplitBillModal.vue'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import AnimatedNumber from '@/components/ui/AnimatedNumber.vue'
 import { useCartStore } from '@/stores/cart'
@@ -29,9 +31,10 @@ import { useSettingsStore } from '@/stores/settings'
 import { useToastStore } from '@/stores/toast'
 import { lineTotal } from '@/utils/pos'
 import type { OrderType } from '@/types'
+import type { CheckoutOptions } from '@/stores/cart'
 
 defineProps<{ closable?: boolean }>()
-const emit = defineEmits<{ pay: []; close: [] }>()
+const emit = defineEmits<{ pay: [opts?: CheckoutOptions]; close: [] }>()
 
 const cart = useCartStore()
 const customers = useCustomersStore()
@@ -44,6 +47,11 @@ const discountOpen = ref(false)
 const customerOpen = ref(false)
 const heldOpen = ref(false)
 const noteOpen = ref(false)
+const splitOpen = ref(false)
+
+// Small icon-over-label buttons, so four fit with longer translations.
+const tool =
+  'btn btn-soft h-14 flex-col gap-0.5 rounded-xl px-1 text-[11px] leading-tight whitespace-normal'
 const confirmClear = ref(false)
 
 const customer = computed(() =>
@@ -207,19 +215,21 @@ function clear() {
 
     <!-- Totals -->
     <div class="space-y-3 border-t border-line p-4">
-      <div class="flex gap-2">
-        <button
-          class="btn btn-soft btn-sm flex-1"
-          :disabled="cart.isEmpty"
-          @click="discountOpen = true"
-        >
+      <div class="grid grid-cols-4 gap-2">
+        <button :class="tool" :disabled="cart.isEmpty" @click="discountOpen = true">
           <Percent class="size-4" /> {{ t('cart.discount') }}
         </button>
-        <button class="btn btn-soft btn-sm flex-1" @click="noteOpen = true">
+        <button :class="[tool, 'relative']" @click="noteOpen = true">
           <StickyNote class="size-4" /> {{ t('cart.note') }}
-          <span v-if="cart.state.note" class="size-1.5 rounded-full bg-accent" />
+          <span
+            v-if="cart.state.note"
+            class="absolute top-1.5 right-2 size-1.5 rounded-full bg-accent"
+          />
         </button>
-        <button class="btn btn-soft btn-sm flex-1" :disabled="cart.isEmpty" @click="hold">
+        <button :class="tool" :disabled="cart.isEmpty" @click="splitOpen = true">
+          <Split class="size-4" /> {{ t('cart.split') }}
+        </button>
+        <button :class="tool" :disabled="cart.isEmpty" @click="hold">
           <CirclePause class="size-4" /> {{ t('cart.hold') }}
         </button>
       </div>
@@ -263,6 +273,11 @@ function clear() {
     <DiscountModal v-model="discountOpen" />
     <CustomerPicker v-model="customerOpen" />
     <HeldOrders v-model="heldOpen" />
+    <SplitBillModal
+      v-model="splitOpen"
+      @items="(selection) => emit('pay', { selection })"
+      @equal="(splitWays) => emit('pay', { splitWays })"
+    />
 
     <BaseModal v-model="noteOpen" :title="t('cart.orderNote')" size="sm">
       <textarea

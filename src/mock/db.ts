@@ -1,12 +1,14 @@
 // In-memory database for the mock API, seeded from the JSON files in ./data.
 // Only relative imports here: this module also runs inside the Vite config (Node).
-import type { DbData, Order, ResetScope } from '../types.ts'
+import type { DbData, ExchangeRateSet, Order, ResetScope } from '../types.ts'
+import { localDate } from '../utils/rates.ts'
 import settings from './data/settings.json' with { type: 'json' }
 import staff from './data/staff.json' with { type: 'json' }
 import categories from './data/categories.json' with { type: 'json' }
 import products from './data/products.json' with { type: 'json' }
 import customers from './data/customers.json' with { type: 'json' }
 import orders from './data/orders.json' with { type: 'json' }
+import rates from './data/exchange-rates.json' with { type: 'json' }
 
 /** Where the database is saved between requests (a JSON file, or browser storage). */
 export interface DbAdapter {
@@ -43,6 +45,36 @@ export function demoOrders(now = Date.now()): Order[] {
   return list.filter((o) => o.createdAt <= now)
 }
 
+/**
+ * A week of demo exchange rates ending today. exchange-rates.json lists how many units of
+ * each currency one unit of the base buys; the stored rate is the other way round.
+ */
+export function demoRates(now = Date.now()): ExchangeRateSet[] {
+  const sets: ExchangeRateSet[] = []
+  for (let i = 6; i >= 0; i--) {
+    const at = startOfDay(now) - i * DAY + 8 * 3600000
+    // Small, repeatable day-to-day movement (up to ±0.4%).
+    const drift = 1 + (((i * 37) % 9) - 4) / 1000
+    sets.unshift({
+      date: localDate(at),
+      base: rates.base,
+      rates: Object.entries(rates.perBase as Record<string, number>).map(([currency, per]) => {
+        // Round the way a person would type it: whole kip, 2 decimals for baht and yuan, and
+        // "1 EUR = 1.087 USD" for a currency worth more than the base.
+        if (per < 1) return { currency, rate: Math.round(10000 / per) / 10000 }
+        const moved = per * drift
+        return {
+          currency,
+          rate: 1 / (per >= 1000 ? Math.round(moved) : Math.round(moved * 100) / 100),
+        }
+      }),
+      updatedBy: 'Admin',
+      updatedAt: at,
+    })
+  }
+  return sets
+}
+
 export function seedData(now = Date.now()): DbData {
   return {
     settings: clone(settings) as DbData['settings'],
@@ -54,6 +86,7 @@ export function seedData(now = Date.now()): DbData {
     stockMoves: [],
     shifts: [],
     held: [],
+    exchangeRates: demoRates(now),
   }
 }
 

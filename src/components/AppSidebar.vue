@@ -14,6 +14,7 @@ import {
   Lock,
   Sun,
   Moon,
+  ArrowRightLeft,
 } from 'lucide-vue-next'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
@@ -40,6 +41,7 @@ const links = computed(() =>
       badge: catalog.lowStock.length,
     },
     { to: '/reports', label: t('nav.reports'), icon: ChartColumn, admin: true },
+    { to: '/rates', label: t('nav.rates'), icon: ArrowRightLeft, admin: true },
     { to: '/settings', label: t('nav.settings'), icon: Settings, admin: true },
   ].filter((l) => !l.admin || auth.isAdmin),
 )

@@ -7,6 +7,8 @@ import type {
   CheckoutRequest,
   Customer,
   CustomerInput,
+  EffectiveRates,
+  ExchangeRateSet,
   HeldOrder,
   ImportKind,
   ImportRequest,
@@ -17,6 +19,7 @@ import type {
   Page,
   Product,
   ProductSales,
+  RateEntry,
   ReportSummary,
   ResetScope,
   SalesBucket,
@@ -58,6 +61,17 @@ export const api = {
   settings: {
     get: () => request<Settings>('GET', '/settings'),
     update: (body: Partial<Settings>) => request<Settings>('PATCH', '/settings', { body }),
+  },
+
+  exchangeRates: {
+    /** Rates in effect on a day (default today): that day's, or the latest earlier ones. */
+    get: (date?: string) =>
+      request<EffectiveRates>('GET', '/exchange-rates', { query: date ? { date } : {} }),
+    history: (limit = 30) =>
+      request<ExchangeRateSet[]>('GET', '/exchange-rates/history', { query: { limit } }),
+    set: (date: string, rates: RateEntry[]) =>
+      request<ExchangeRateSet>('PUT', `/exchange-rates/${enc(date)}`, { body: { rates } }),
+    remove: (date: string) => request<null>('DELETE', `/exchange-rates/${enc(date)}`),
   },
 
   categories: {

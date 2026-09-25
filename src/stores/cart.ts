@@ -29,6 +29,26 @@ interface CartState {
   customerId: string | null
   /** Order id reused if a checkout is retried, so the customer is never charged twice. */
   pendingId?: string | null
+  /** What `pendingId` was for: a different order or selection gets a new id. */
+  pendingSig?: string | null
+}
+
+/** Split by items: quantity of each cart line (by line id) to charge now. */
+export type Selection = Record<string, number>
+
+export interface CheckoutOptions {
+  /** Charge only these items; the rest stay in the cart. */
+  selection?: Selection
+  /** The bill is split equally between this many guests (payments carry a guest number). */
+  splitWays?: number
+}
+
+/** Equal shares of a total: everyone pays the rounded-down share, the last guest the rest. */
+export function equalShares(total: number, ways: number, decimals: number): number[] {
+  const f = 10 ** decimals
+  const share = Math.floor((total * f) / ways + 1e-9) / f
+  const last = Math.round((total - share * (ways - 1)) * f) / f
+  return [...Array(ways - 1).fill(share), last]
 }
 
 const emptyCart = (): CartState => ({
@@ -39,6 +59,7 @@ const emptyCart = (): CartState => ({
   note: '',
   customerId: null,
   pendingId: null,
+  pendingSig: null,
 })
 
 /** Options pre-selected when a product is added in one tap: the first choice of each required group. */
@@ -58,12 +79,35 @@ export const useCartStore = defineStore('cart', () => {
   const totals = computed(() => computeTotals(state.value.lines, state.value.discount, settings.s))
   const isEmpty = computed(() => state.value.lines.length === 0)
 
-  // Any change to the order means a new checkout, so drop the retry id.
-  watch(
-    () => [state.value.lines, state.value.discount, state.value.customerId],
-    () => (state.value.pendingId = null),
-    { deep: true },
-  )
+  /** Every line needs an id to be picked when splitting (carts saved by older versions lack them). */
+  function ensureIds() {
+    for (const l of state.value.lines) l.id ??= uid()
+  }
+  watch(() => state.value.lines.length, ensureIds, { immediate: true })
+
+  /**
+   * The part of the order a selection covers. A percentage discount applies as is; an amount
+   * discount is shared out in proportion to the items' value.
+   */
+  function portion(selection?: Selection): { lines: OrderLine[]; discount: Discount } {
+    const c = state.value
+    if (!selection) return { lines: c.lines, discount: c.discount }
+    const lines = c.lines
+      .filter((l) => (selection[l.id!] ?? 0) > 0)
+      .map((l) => ({ ...clone(l), qty: Math.min(selection[l.id!]!, l.qty) }))
+    if (c.discount.type === 'percent') return { lines, discount: { ...c.discount } }
+    const full = totals.value
+    const part = computeTotals(lines, { type: 'percent', value: 0 }, settings.s)
+    const value = full.subtotal
+      ? settings.round((full.discount * part.subtotal) / full.subtotal)
+      : 0
+    return { lines, discount: { type: 'amount', value } }
+  }
+
+  function selectionTotals(selection: Selection) {
+    const p = portion(selection)
+    return computeTotals(p.lines, p.discount, settings.s)
+  }
 
   function add(p: Product, options: SelectedOption[] = defaultOptions(p), qty = 1) {
     const key = lineKey(p.id, options)
@@ -136,6 +180,46 @@ export const useCartStore = defineStore('cart', () => {
       note: h.note,
       customerId: h.customerId,
       pendingId: null,
+      pendingSig: null,
+    }
+  }
+
+  /** Adds a line from another bill, combining it with an identical plain line. */
+  function addLine(line: OrderLine) {
+    const plain = (l: OrderLine) => !l.note && !l.discountPct
+    const same = plain(line)
+      ? state.value.lines.find((l) => l.key === line.key && plain(l))
+      : undefined
+    if (same) same.qty += line.qty
+    else state.value.lines.push({ ...line, id: uid() })
+  }
+
+  /**
+   * Merge bill: moves held orders into the current order. Tables are joined ("5 + 6"), notes
+   * kept, and the first customer found is used. Amount discounts add up; otherwise the current
+   * order's discount (or the first merged bill's) is kept.
+   */
+  async function mergeHeld(ids: string[]) {
+    const c = state.value
+    const tables = c.table ? [c.table] : []
+    const notes = c.note ? [c.note] : []
+    const discounts = !isEmpty.value && c.discount.value > 0 ? [c.discount] : []
+    const startedEmpty = isEmpty.value
+    for (const [i, id] of ids.entries()) {
+      const h = await api.held.remove(id)
+      held.value = held.value.filter((x) => x.id !== id)
+      for (const l of h.lines) addLine(l)
+      if (h.table && !tables.includes(h.table)) tables.push(h.table)
+      if (h.note) notes.push(h.note)
+      if (h.discount.value > 0) discounts.push(h.discount)
+      c.customerId ??= h.customerId
+      if (startedEmpty && i === 0) c.orderType = h.orderType
+      c.table = tables.join(' + ').slice(0, 20)
+      c.note = notes.join(' · ').slice(0, 500)
+      c.discount =
+        discounts.every((d) => d.type === 'amount') && discounts.length
+          ? { type: 'amount', value: settings.round(discounts.reduce((s, d) => s + d.value, 0)) }
+          : (discounts[0] ?? { type: 'percent', value: 0 })
     }
   }
 
@@ -145,26 +229,46 @@ export const useCartStore = defineStore('cart', () => {
   }
 
   /** Sends the order to the server, which prices it, deducts stock and returns the saved order. */
-  async function checkout(payments: Payment[]): Promise<Order> {
+  async function checkout(payments: Payment[], opts: CheckoutOptions = {}): Promise<Order> {
     const c = state.value
-    c.pendingId ??= uid()
-    const order = await api.orders.create({
-      id: c.pendingId,
+    const part = portion(opts.selection)
+    const body = {
       orderType: c.orderType,
       table: c.table,
       note: c.note,
       customerId: c.customerId,
-      orderDiscount: c.discount,
-      lines: c.lines.map((l) => ({
+      orderDiscount: part.discount,
+      lines: part.lines.map((l) => ({
         productId: l.productId,
         qty: l.qty,
         options: l.options.map((o) => ({ group: o.group, name: o.name })),
         note: l.note,
         discountPct: l.discountPct,
       })),
-      payments,
-    })
-    clear()
+      splitWays: opts.splitWays,
+    }
+    // Retrying the same order reuses its id; anything different is a new order.
+    const sig = JSON.stringify(body)
+    if (c.pendingSig !== sig || !c.pendingId) {
+      c.pendingId = uid()
+      c.pendingSig = sig
+    }
+    const order = await api.orders.create({ id: c.pendingId, ...body, payments })
+    if (opts.selection) {
+      // Split by items: keep what hasn't been paid for yet.
+      const sel = opts.selection
+      c.lines = c.lines
+        .map((l) => ({ ...l, qty: l.qty - Math.min(sel[l.id!] ?? 0, l.qty) }))
+        .filter((l) => l.qty > 0)
+      if (c.discount.type === 'amount')
+        c.discount = {
+          type: 'amount',
+          value: settings.round(Math.max(c.discount.value - order.discount, 0)),
+        }
+      c.pendingId = null
+      c.pendingSig = null
+      if (!c.lines.length) clear()
+    } else clear()
     // Stock, the drawer, top sellers and loyalty points changed on the server.
     void Promise.allSettled([
       useCatalogStore().refreshProducts(),
@@ -188,6 +292,9 @@ export const useCartStore = defineStore('cart', () => {
     hold,
     resume,
     discardHeld,
+    mergeHeld,
+    portion,
+    selectionTotals,
     checkout,
   }
 })

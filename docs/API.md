@@ -6,7 +6,7 @@ setting. The screens don't need to change.
 
 - [How it works](#how-it-works) and [switching to your backend](#switching-to-your-backend)
 - [The mock backend](#the-mock-backend) and its JSON data files
-- [REST API reference](#rest-api-reference): 52 endpoints
+- [REST API reference](#rest-api-reference): 56 endpoints
 - [Building your backend](#building-your-backend): a checklist and the contract tests
 
 Types for every request and response are in [`src/types.ts`](../src/types.ts).
@@ -47,14 +47,14 @@ Restart `npm run dev` after changing `.env.local`. With `VITE_API_PROXY`, your b
 
 ## The mock backend
 
-| File                           | Purpose                                                                                                                                         |
-| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/mock/data/*.json`         | Seed data: `settings`, `staff`, `categories`, `products`, `customers`, `orders` (about 220 demo sales). Edit these to change the starting data. |
-| `src/mock/router.ts`           | Every endpoint: routing, validation, roles and business rules. **This is the reference implementation for your backend.**                       |
-| `src/mock/logic.ts`            | Top-seller ranking, shift cash-up and report calculations.                                                                                      |
-| `src/mock/db.ts`               | Loads the seed data and saves changes.                                                                                                          |
-| `src/mock/node/vite-plugin.ts` | Serves the mock from `npm run dev` and `npm run preview`.                                                                                       |
-| `src/mock/browser.ts`          | Runs the mock inside the browser (`VITE_API_MODE=local`).                                                                                       |
+| File                           | Purpose                                                                                                                                                                                  |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/mock/data/*.json`         | Seed data: `settings`, `staff`, `categories`, `products`, `customers`, `orders` (about 220 demo sales), `exchange-rates` (a week of demo rates). Edit these to change the starting data. |
+| `src/mock/router.ts`           | Every endpoint: routing, validation, roles and business rules. **This is the reference implementation for your backend.**                                                                |
+| `src/mock/logic.ts`            | Top-seller ranking, shift cash-up and report calculations.                                                                                                                               |
+| `src/mock/db.ts`               | Loads the seed data and saves changes.                                                                                                                                                   |
+| `src/mock/node/vite-plugin.ts` | Serves the mock from `npm run dev` and `npm run preview`.                                                                                                                                |
+| `src/mock/browser.ts`          | Runs the mock inside the browser (`VITE_API_MODE=local`).                                                                                                                                |
 
 - Changes are saved to **`.mock-db.json`** in the project root, so they survive a restart. This file is git-ignored.
 - Run **`npm run mock:reset`** (or delete the file) to start again from the JSON seed files.
@@ -145,7 +145,27 @@ PINs are never returned.
 
 `Settings`: `storeName`, `address`, `phone`, `currency` (ISO code such as `USD` or `LAK`), `locale`, `decimals` (0–4),
 `taxLabel`, `taxRate` (%), `serviceRate` (%), `receiptFooter`, `pointsPerUnit` (loyalty points per 1 currency unit),
-`topSellerDays`.
+`topSellerDays`, `receiptShowRates` (print the day's exchange rates and converted totals on receipts).
+
+### Exchange rates
+
+Rates are set per day by a manager. Every sale stores the rates in effect when it was paid, so an old receipt always
+shows the rates it was paid at.
+
+| Method   | Path                      | Access  | Query / body                             | Response                                            |
+| -------- | ------------------------- | ------- | ---------------------------------------- | --------------------------------------------------- |
+| `GET`    | `/exchange-rates`         | staff   | `?date=YYYY-MM-DD` (default: today)      | `{ date, effectiveDate, base, rates: RateEntry[] }` |
+| `GET`    | `/exchange-rates/history` | staff   | `?limit=30`                              | `ExchangeRateSet[]`, newest day first               |
+| `PUT`    | `/exchange-rates/:date`   | manager | `{ rates: [{ currency: "LAK", rate }] }` | `ExchangeRateSet` (creates or replaces that day)    |
+| `DELETE` | `/exchange-rates/:date`   | manager | —                                        | `204`                                               |
+
+- `rate` is **how many units of the store currency one unit of `currency` is worth**. With a USD store,
+  `1 USD = 21,850 LAK` is stored as `{ "currency": "LAK", "rate": 0.0000457666 }` and `1 EUR = 1.087 USD` as
+  `{ "currency": "EUR", "rate": 1.087 }`. The app lets managers type either direction.
+- `ExchangeRateSet`: `{ date, base, rates, updatedBy, updatedAt }`. `base` is the store currency when the rates were
+  saved. `rate` must be above 0, and the store currency can't be listed.
+- `GET /exchange-rates` returns that day's rates, or the latest earlier ones (`effectiveDate` says which day; `null` when
+  there are none). If the store currency changed, rates are converted when the set includes the new currency.
 
 ### Categories
 
@@ -235,12 +255,14 @@ looks up prices, works out totals, checks stock, deducts stock, assigns the orde
       "discountPct": 0
     }
   ],
-  "payments": [{ "method": "cash", "amount": 20 }]
+  "payments": [{ "method": "cash", "amount": 20 }],
+  "splitWays": null
 }
 ```
 
 Response `201`: the full `Order`, including `number`, `lines` (with names and prices at the time of sale), `subtotal`,
-`discount`, `service`, `tax`, `total`, `tendered`, `change`, `pointsEarned`, `staffName` and `shiftId`.
+`discount`, `service`, `tax`, `total`, `tendered`, `change`, `pointsEarned`, `staffName`, `shiftId`, `exchangeRates`
+(the day's rates, `{ date, base, rates }` or `null`) and `splitWays` when the bill was split equally.
 
 Rules:
 
@@ -252,6 +274,18 @@ Rules:
 4. Payments must cover the total. Only cash can exceed it (the difference is `change`).
 5. `payments[].method` is `cash`, `card` or `qr`. Split payments are allowed.
 6. `pointsEarned = floor(total × settings.pointsPerUnit)` when a customer is attached.
+7. The server saves the rates in effect on the day of the sale in `exchangeRates`.
+
+**Split bill.** There are two ways to split, and neither needs a special endpoint:
+
+- **By items:** the app sends one `POST /orders` for each guest with only the items that guest pays for. An amount
+  discount is shared out in proportion to the items' value. The remaining items stay on the till.
+- **Equally:** one order with `splitWays` (2–20) and each payment tagged with the guest who made it:
+  `"payments": [{ "method": "card", "amount": 3.02, "guest": 1 }, { "method": "cash", "amount": 5, "guest": 2 }]`.
+  The shares are `total ÷ splitWays` rounded down, and the last guest pays the rest.
+
+**Merge bill** is done in the app: it removes the chosen held orders (`DELETE /held-orders/:id`) and combines their items
+into the current order.
 
 ### Orders
 
@@ -370,14 +404,14 @@ Rules:
 
 ### Backup and admin (manager)
 
-| Method | Path           | Body                                                                | Response                                                                                                                           |
-| ------ | -------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `GET`  | `/backup`      | —                                                                   | `{ app: "sun-pos", version: 2, at, data: { settings, staff, categories, products, stockMoves, customers, orders, shifts, held } }` |
-| `POST` | `/backup`      | A backup file (version 1 files from the browser-only app also work) | `204`                                                                                                                              |
-| `POST` | `/admin/reset` | `{ scope: "sales" \| "demo" \| "all" }`                             | `204`                                                                                                                              |
+| Method | Path           | Body                                                                | Response                                                                                                                                          |
+| ------ | -------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`  | `/backup`      | —                                                                   | `{ app: "sun-pos", version: 2, at, data: { settings, staff, categories, products, stockMoves, customers, orders, shifts, held, exchangeRates } }` |
+| `POST` | `/backup`      | A backup file (version 1 files from the browser-only app also work) | `204`                                                                                                                                             |
+| `POST` | `/admin/reset` | `{ scope: "sales" \| "demo" \| "all" }`                             | `204`                                                                                                                                             |
 
 `sales` clears orders, shifts, held orders and stock movements. `demo` does the same, then loads the demo sales. `all`
-restores all the seed data. A real backend may want to restrict or remove `/admin/reset` in production.
+restores all the seed data. Exchange rates are kept, except by `all`. A real backend may want to restrict or remove `/admin/reset` in production.
 
 ---
 
@@ -393,23 +427,24 @@ restores all the seed data. A real backend may want to restrict or remove `/admi
 5. **Hash PINs** (bcrypt or argon2) and **limit wrong attempts**. The mock does neither.
 6. **Check it with the contract tests.** [`src/__tests__/api.spec.ts`](../src/__tests__/api.spec.ts) runs these
    scenarios against the mock: sign-in and roles, server-side pricing, options, retries, stock, payments, loyalty
-   points, refunds, cash-up and reports. Run the same requests against your backend and compare.
+   points, refunds, cash-up, reports, exchange rates and split payments. Run the same requests against your backend and compare.
 7. **Switch the app over** with `VITE_API_PROXY` (development) or `VITE_API_URL` (production).
 
 ## Frontend reference
 
 The screens use the Pinia stores. Each store keeps a cached copy of its data and calls the API through `src/api`.
 
-| Store               | Main functions                                                                                                                        | Endpoints used                              |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
-| `useAuthStore`      | `init`, `login`, `logout`, `loadStaff`, `saveStaff`, `removeStaff`                                                                    | `/auth/*`, `/staff`                         |
-| `useSettingsStore`  | `load`, `save`, `money`, `round`, `toggleTheme` (theme stays on the device)                                                           | `/settings`                                 |
-| `useCatalogStore`   | `load`, `refreshProducts`, `findByCode`, `saveProduct`, `removeProduct`, `saveCategory`, `removeCategory`, `adjustStock`, `loadMoves` | `/categories`, `/products`, `/stock/*`      |
-| `useCartStore`      | `add`, `setQty`, `remove`, `clear`, `hold`, `resume`, `discardHeld`, `checkout`                                                       | `/held-orders`, `POST /orders`              |
-| `useOrdersStore`    | `loadTopSellers`, `refund`                                                                                                            | `/orders/top-sellers`, `/orders/:id/refund` |
-| `useCustomersStore` | `load`, `search`, `save`, `remove`, `refresh`                                                                                         | `/customers`                                |
-| `useShiftStore`     | `load`, `open`, `moveCash`, `close`                                                                                                   | `/shifts/*`                                 |
-| `useAppStore`       | `load` (everything needed after sign-in)                                                                                              | several                                     |
+| Store               | Main functions                                                                                                                                      | Endpoints used                              |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| `useAuthStore`      | `init`, `login`, `logout`, `loadStaff`, `saveStaff`, `removeStaff`                                                                                  | `/auth/*`, `/staff`                         |
+| `useSettingsStore`  | `load`, `save`, `money`, `round`, `toggleTheme` (theme stays on the device)                                                                         | `/settings`                                 |
+| `useCatalogStore`   | `load`, `refreshProducts`, `findByCode`, `saveProduct`, `removeProduct`, `saveCategory`, `removeCategory`, `adjustStock`, `loadMoves`               | `/categories`, `/products`, `/stock/*`      |
+| `useCartStore`      | `add`, `setQty`, `remove`, `clear`, `hold`, `resume`, `discardHeld`, `mergeHeld`, `selectionTotals`, `checkout(payments, { selection, splitWays })` | `/held-orders`, `POST /orders`              |
+| `useRatesStore`     | `load`, `loadHistory`, `save`, `remove`                                                                                                             | `/exchange-rates/*`                         |
+| `useOrdersStore`    | `loadTopSellers`, `refund`                                                                                                                          | `/orders/top-sellers`, `/orders/:id/refund` |
+| `useCustomersStore` | `load`, `search`, `save`, `remove`, `refresh`                                                                                                       | `/customers`                                |
+| `useShiftStore`     | `load`, `open`, `moveCash`, `close`                                                                                                                 | `/shifts/*`                                 |
+| `useAppStore`       | `load` (everything needed after sign-in)                                                                                                            | several                                     |
 
 The Orders, Reports, Shift history, customer history and Import screens call `api.*` directly.
 File reading, column matching and templates for the import are in `src/utils/importer.ts`.

@@ -2,7 +2,8 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createDb, memoryAdapter, seedData } from '@/mock/db'
 import { createApi } from '@/mock/router'
-import type { CheckoutRequest, Order, Product, ShiftWithSummary } from '@/types'
+import { localDate } from '@/utils/rates'
+import type { CheckoutRequest, EffectiveRates, Order, Product, ShiftWithSummary } from '@/types'
 
 let api: ReturnType<typeof createApi>
 let token: string | null = null
@@ -227,9 +228,13 @@ describe('reports and top sellers', () => {
   })
 
   it('moves demo sales so the newest one is today', () => {
-    const orders = seedData().orders
+    // Fixed evening time: early in the morning today's demo sales haven't "happened" yet.
+    const now = new Date()
+    now.setHours(22, 0, 0, 0)
+    const orders = seedData(now.getTime()).orders
     const newest = Math.max(...orders.map((o) => o.createdAt))
-    expect(new Date(newest).toDateString()).toBe(new Date().toDateString())
+    expect(new Date(newest).toDateString()).toBe(now.toDateString())
+    expect(newest).toBeLessThanOrEqual(now.getTime())
   })
 
   it('summarises a date range', () => {
@@ -247,5 +252,70 @@ describe('errors', () => {
   it('returns 404 for unknown endpoints and 405 for wrong methods', () => {
     expect(call('GET', '/nope').status).toBe(404)
     expect(call('PUT', '/settings').status).toBe(405)
+  })
+})
+
+describe('exchange rates', () => {
+  const today = localDate()
+
+  it('returns the latest rates on or before a day, for the store currency', () => {
+    login()
+    const res = call<EffectiveRates>('GET', '/exchange-rates', null, { date: today })
+    expect(res.body).toMatchObject({ date: today, effectiveDate: today, base: 'USD' })
+    const lak = res.body.rates.find((r) => r.currency === 'LAK')!
+    expect(1 / lak.rate).toBeGreaterThan(20000)
+    // A day before any rates were set has none.
+    expect(
+      call<EffectiveRates>('GET', '/exchange-rates', null, { date: '2000-01-01' }).body,
+    ).toMatchObject({ effectiveDate: null, rates: [] })
+  })
+
+  it('lets managers set and delete a day, and checks the rates', () => {
+    login()
+    const put = (rates: unknown) => call('PUT', `/exchange-rates/${today}`, { rates })
+    expect(put([{ currency: 'USD', rate: 1 }]).status).toBe(400) // the store currency
+    expect(put([{ currency: 'LAK', rate: 0 }]).status).toBe(400)
+    expect(put([]).status).toBe(400)
+    expect(put([{ currency: 'LAK', rate: 1 / 22000 }]).status).toBe(200)
+    const eff = call<EffectiveRates>('GET', '/exchange-rates').body
+    expect(eff.rates).toEqual([{ currency: 'LAK', rate: 1 / 22000 }])
+
+    expect(call('DELETE', `/exchange-rates/${today}`).status).toBe(204)
+    // Falls back to the previous day's rates.
+    expect(call<EffectiveRates>('GET', '/exchange-rates').body.effectiveDate).not.toBe(today)
+
+    login('0000')
+    expect(put([{ currency: 'LAK', rate: 1 / 22000 }]).status).toBe(403)
+  })
+
+  it('re-expresses rates when the store currency changes', () => {
+    login()
+    call('PATCH', '/settings', { currency: 'LAK', decimals: 0 })
+    const eff = call<EffectiveRates>('GET', '/exchange-rates').body
+    const usd = eff.rates.find((r) => r.currency === 'USD')!
+    expect(eff.base).toBe('LAK')
+    expect(usd.rate).toBeGreaterThan(20000) // 1 USD is worth ~21,850 LAK
+  })
+
+  it('saves the day’s rates with each sale, and the equal-split payments', () => {
+    login()
+    call('POST', '/shifts', { openingFloat: 0 })
+    const res = call<Order>(
+      'POST',
+      '/orders',
+      sale({
+        splitWays: 2,
+        payments: [
+          { method: 'card', amount: 3.02, guest: 1 },
+          { method: 'cash', amount: 5, guest: 2 },
+        ],
+      }),
+    )
+    expect(res.status).toBe(201)
+    expect(res.body.exchangeRates).toMatchObject({ date: today, base: 'USD' })
+    expect(res.body.splitWays).toBe(2)
+    expect(res.body.payments.map((p) => p.guest)).toEqual([1, 2])
+    expect(res.body.change).toBe(1.97)
+    expect(call('POST', '/orders', sale({ splitWays: 1 })).status).toBe(400)
   })
 })

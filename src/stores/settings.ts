@@ -4,6 +4,7 @@ import { api } from '@/api'
 import { persisted } from '@/composables/persisted'
 import { language } from '@/i18n'
 import { roundTo } from '@/utils/pos'
+import { currencyDecimals } from '@/utils/rates'
 import { embedded } from '@/utils/env'
 import type { MotionMode, Settings, ThemeMode } from '@/types'
 
@@ -21,6 +22,7 @@ const fallback: Settings = {
   receiptFooter: '',
   pointsPerUnit: 1,
   topSellerDays: 30,
+  receiptShowRates: true,
 }
 
 export const useSettingsStore = defineStore('settings', () => {
@@ -56,6 +58,28 @@ export const useSettingsStore = defineStore('settings', () => {
 
   function money(n: number): string {
     return formatter.value.format(n || 0)
+  }
+
+  /** Formats an amount in another currency (e.g. a converted total), in that currency's usual decimals. */
+  function moneyIn(n: number, currency: string): string {
+    const digits = currencyDecimals(currency)
+    try {
+      return new Intl.NumberFormat(s.value.locale, {
+        style: 'currency',
+        currency,
+        currencyDisplay: 'code',
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits,
+      }).format(n || 0)
+    } catch {
+      return `${currency} ${(n || 0).toFixed(digits)}`
+    }
+  }
+
+  /** An exchange rate, with as many decimals as it needs (21,850 · 35.52 · 0.9217). */
+  function rateNumber(v: number): string {
+    const digits = v >= 100 ? 2 : v >= 1 ? 4 : 6
+    return new Intl.NumberFormat(s.value.locale, { maximumFractionDigits: digits }).format(v)
   }
 
   function round(n: number): number {
@@ -100,5 +124,19 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   // Interface language is per device too (see src/i18n).
-  return { s, theme, motion, animate, language, load, save, money, round, isDark, toggleTheme }
+  return {
+    s,
+    theme,
+    motion,
+    animate,
+    language,
+    load,
+    save,
+    money,
+    moneyIn,
+    rateNumber,
+    round,
+    isDark,
+    toggleTheme,
+  }
 })
