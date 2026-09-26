@@ -5,6 +5,8 @@ import type { DailySummary, RiskAlert } from '@/types'
 export interface TextOptions {
   lang: Language
   storeName: string
+  /** Shown when the shop has several branches (a branch name, or "All branches"). */
+  branchName?: string
   money: (n: number) => string
 }
 
@@ -36,7 +38,7 @@ export function summaryText(s: DailySummary, o: TextOptions): string {
   }
 
   const lines: string[] = []
-  lines.push(`☀ ${o.storeName} · ${t('summary.title')}`)
+  lines.push(`☀ ${o.storeName}${o.branchName ? ` · ${o.branchName}` : ''} · ${t('summary.title')}`)
   lines.push(day)
   lines.push('')
   lines.push(`${t('summary.sales')}: ${o.money(s.sales)}${change(s.sales, s.lastWeek.sales)}`)
@@ -70,6 +72,16 @@ export function summaryText(s: DailySummary, o: TextOptions): string {
         lines.push(`• ${sh.staffName} ${when}: ${result}`)
       }
     }
+  }
+
+  if (s.labour.hours > 0) {
+    const share = s.sales > 0 ? Math.round((s.labour.cost / s.sales) * 100) : 0
+    lines.push('')
+    lines.push(
+      s.labour.cost > 0
+        ? t('summary.labour', { hours: s.labour.hours, cost: o.money(s.labour.cost), pct: share })
+        : t('summary.hours', { hours: s.labour.hours }),
+    )
   }
 
   const controls = [

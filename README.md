@@ -14,8 +14,8 @@ npm install
 npm run dev          # http://localhost:5173
 ```
 
-A **mock backend is included**, so the app runs right after cloning, with a sample menu, staff, customers, a floor plan,
-a week of exchange rates and 14 days of demo sales.
+A **mock backend is included**, so the app runs right after cloning, with a sample menu, staff, customers, two branches
+with floor plans, promotions, a week of exchange rates, 14 days of demo sales and two weeks of staff clock-ins.
 
 **Demo PINs:** Manager `1234` · Cashier `0000`
 
@@ -34,6 +34,12 @@ a week of exchange rates and 14 days of demo sales.
   dine-in / takeaway / delivery, table, customer and order note. The order on screen survives a page reload.
 - **Hold & resume**: park an order and serve the next customer. Held orders are saved on the server, so any till can
   open them.
+- **Promotions** apply by themselves when their time comes, and show in the cart and on the receipt:
+  - **% off** chosen items or categories, e.g. a happy hour 14:00–17:00
+  - **buy X get Y free** (the cheapest items are free)
+  - **spend over** an amount for a % off the order
+  - each can run on chosen days, times, dates and branches. The Sell screen shows what is running now, and the server
+    works out every promotion again, so the till's figure is never trusted.
 
 ### Payments and bills
 
@@ -58,6 +64,15 @@ a week of exchange rates and 14 days of demo sales.
     on the Sell screen. Kitchen tickets move with the bill.
   - **Edit layout** (managers): drag tables with a mouse, finger or arrow keys, resize them, set name, seats, shape
     and area, and add or rename areas. Overlapping tables are outlined in red.
+- **QR ordering at the table**: every table has its own QR code (print them all from **Tables → QR codes**). Guests scan
+  it, see the menu in English, Lao, Chinese or Vietnamese, choose items and options, and send the order from their
+  phone.
+  - The order appears on the tills (a badge on **Tables**, with a message). Staff **accept** it, and the items go onto
+    the table's bill and to the kitchen, or **turn it down** with a reason the guest sees in their own language. Orders
+    can also be accepted automatically.
+  - The guest's phone shows each order's progress. Guests pay at the till as usual, so promotions and tax apply there.
+  - The server prices guest orders itself and ignores discounts; a till saving an older copy of the bill keeps the
+    guest's items. A copied code can be replaced, which stops the old one.
 - **Kitchen & bar tickets**: each category goes to a station (Coffee → Bar, Food → Kitchen, Bakery → no ticket).
   - **Send** passes new items to the stations; a table's order then goes back to the floor plan. Paying sends anything
     not sent yet, so takeaway orders reach the kitchen too.
@@ -87,6 +102,22 @@ a week of exchange rates and 14 days of demo sales.
   last 7 days.
 - **Shifts & cash drawer**: opening float, cash in/out, expected cash, and end-of-day count with over/short.
 - Choose all controls in **Settings → Staff controls**.
+
+### Branches and staff hours
+
+- **Multiple branches**: the menu, prices, customers, staff, exchange rates and promotions are shared; each branch has
+  its own orders, shifts and cash drawers, stock, floor plan, kitchen tickets and activity log.
+  - Each till is set to a branch on the lock screen. Managers can move a till to another branch from the sidebar.
+  - Staff can be limited to some branches. Receipts show the branch's address and phone.
+  - Reports, the activity log, the daily summary and timesheets show one branch or **all branches**, with sales by
+    branch.
+- **Staff clock-in**: staff clock in and out with their PIN on the lock screen (no sign-in needed).
+  - **Shift** shows who is working now.
+  - **Timesheets** (managers): hours and pay per person for today, this or last week or this month, staff pay as a
+    share of sales, and CSV export. Pay comes from each person's hourly rate.
+  - Forgotten clock-outs are fixed on the timesheet, and every change is logged in the activity log.
+  - Optional: cashiers must clock in before they can sign in (**Settings → Staff controls**).
+  - The daily summary includes the day's hours and staff pay.
 
 ### For the owner
 
@@ -131,18 +162,23 @@ a week of exchange rates and 14 days of demo sales.
 | Screen    | What it's for                         |             Cashier              |      Manager      |
 | --------- | ------------------------------------- | :------------------------------: | :---------------: |
 | Sell      | Taking orders and payments            |                ✓                 |         ✓         |
-| Tables    | Floor plan, moving and merging bills  |                ✓                 | ✓ (+ edit layout) |
+| Tables    | Floor plan, bills, guest QR orders    |                ✓                 | ✓ (+ edit layout) |
 | Kitchen   | Kitchen and bar tickets               |                ✓                 |         ✓         |
 | Orders    | History, receipts, refunds            | ✓ (refunds with a manager's PIN) |         ✓         |
 | Shift     | Opening, cash in/out, closing         |         ✓ (blind count)          |         ✓         |
 | Customers | Customer records and loyalty          |                ✓                 |         ✓         |
 | Products  | Menu, categories, options             |                                  |         ✓         |
+| Promos    | Promotions                            |                                  |         ✓         |
+| Hours     | Timesheets and staff pay              |                                  |         ✓         |
+| QR codes  | Printable QR codes for the tables     |                                  |         ✓         |
 | Stock     | Stock levels and movements            |                                  |         ✓         |
 | Reports   | Sales reports                         |                                  |         ✓         |
 | Summary   | Daily summary and sending             |                                  |         ✓         |
 | Activity  | Warnings and the activity log         |                                  |         ✓         |
 | Rates     | Daily exchange rates                  |                                  |         ✓         |
-| Settings  | Store settings, staff, controls, data |                                  |         ✓         |
+| Settings  | Store settings, staff, branches, data |                                  |         ✓         |
+
+Guests use one more screen, the **ordering page** their table's QR code opens, without signing in.
 
 ### Needs a real backend
 
@@ -151,7 +187,10 @@ The mock backend covers everything above for demos and development. A few things
 - **Sending the daily summary automatically** through a Telegram bot, WhatsApp Business or email. The mock keeps
   queued summaries in the send list on the Summary screen.
 - **Several tills at once**: with the dev server, all browsers share the mock data; with `VITE_API_MODE=local`, each
-  browser has its own. Other tills' changes (tables, tickets) appear within 5–10 seconds.
+  browser has its own. Other tills' changes (tables, tickets, guest orders) appear within 5–10 seconds.
+- **QR ordering from guests' own phones**: the QR codes link to this app's `/order/…` page, so the app must be on a
+  server guests can reach (for example your shop's Wi-Fi or the internet). In the single-file preview, open the guest
+  page from the QR codes screen instead.
 - **Security**: hash PINs and limit logins on your server (the mock does neither). See
   [Building your backend](docs/API.md#building-your-backend).
 
@@ -174,7 +213,7 @@ npm run build:preview  # single-file preview at dist-preview/sun-pos.html (no pr
 
 ## Backend and API
 
-The frontend calls the REST API described in **[docs/API.md](docs/API.md)** (74 endpoints).
+The frontend calls the REST API described in **[docs/API.md](docs/API.md)** (96 endpoints).
 
 - **Out of the box:** `npm run dev` serves a mock backend at `/api/v1`. Its starting data is in
   `src/mock/data/*.json`, and changes are saved to `.mock-db.json` (git-ignored).
@@ -207,15 +246,17 @@ Menu items, categories, the receipt footer and other store data are not translat
 src/
   assets/main.css      Tailwind setup and colour tokens (light and dark)
   types.ts             Domain and API types
-  utils/               Totals and cash (pos.ts), exchange rates (rates.ts), the summary message (summaryText.ts),
+  utils/               Totals and cash (pos.ts), promotions (promotions.ts), exchange rates (rates.ts), the summary
+                       message (summaryText.ts),
                        Excel/CSV import (importer.ts), animations, downloads (shared by the app and the mock)
   i18n/                Translations (en, lo, zh, vi), language setting, bundled Lao font
   api/                 API client: one typed function per endpoint
   stores/              Pinia stores: cart, catalog, orders, customers, shift, auth, settings, rates, floor,
-                       kitchen, approval, app, toast
+                       kitchen, selfOrders, approval, app, toast
   mock/                Mock backend: router, business rules (logic.ts), and seed data in mock/data/*.json
   components/          Shared UI, sell-screen components, the floor plan canvas, the approval PIN pad
   views/               Pages: Sell, Tables, Kitchen, Orders, Shift, Customers, Products, Stock, Reports, Summary,
-                       Activity, Rates, Import, Settings, Lock
+                       Activity, Rates, Import, Settings, Lock, Promotions, Timesheets, QR codes, and the guest
+                       ordering page
 docs/API.md            REST API reference and the checklist for building your backend
 ```

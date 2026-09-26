@@ -93,6 +93,11 @@ export const fmtDateTime = (ts: number) =>
 export const fmtTime = (ts: number) => formatDate(ts, { hour: '2-digit', minute: '2-digit' })
 export const fmtDay = (ts: number) =>
   formatDate(ts, { year: 'numeric', month: 'short', day: 'numeric' })
+/** A length of time, such as "7 h 45 min". */
+export function fmtDuration(ms: number): string {
+  const mins = Math.max(0, Math.round(ms / 60000))
+  return t('clock.duration', { h: Math.floor(mins / 60), m: mins % 60 })
+}
 export const fmtFull = (ts: number) => formatDate(ts, { dateStyle: 'medium', timeStyle: 'short' })
 
 /** For templates: `const { t } = useI18n()` keeps components reactive to language changes. */

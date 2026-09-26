@@ -12,10 +12,12 @@ import {
   X,
   LayoutGrid,
   BellRing,
+  QrCode,
 } from 'lucide-vue-next'
 import { t } from '@/i18n'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import FloorCanvas, { type TableState } from '@/components/tables/FloorCanvas.vue'
+import GuestOrdersPanel from '@/components/GuestOrdersPanel.vue'
 import { api } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import { useCartStore } from '@/stores/cart'
@@ -23,7 +25,7 @@ import { useFloorStore } from '@/stores/floor'
 import { useKitchenStore } from '@/stores/kitchen'
 import { useSettingsStore } from '@/stores/settings'
 import { useToastStore } from '@/stores/toast'
-import { clone, computeTotals } from '@/utils/pos'
+import { clone } from '@/utils/pos'
 import type { DiningTable, FloorPlan, HeldOrder, TableShape } from '@/types'
 
 const auth = useAuthStore()
@@ -64,7 +66,7 @@ onBeforeUnmount(() => {
 // Using the floor: open tables, move and merge bills
 // ---------------------------------------------------------------------------
 
-const billTotal = (h: HeldOrder) => computeTotals(h.lines, h.discount, settings.s).total
+const billTotal = (h: HeldOrder) => cart.billTotals(h.lines, h.discount).total
 
 /** Move or merge: the bill being moved, and what kind of table to pick. */
 const picking = ref<{ bill: HeldOrder; mode: 'move' | 'merge' | 'any' } | null>(null)
@@ -359,6 +361,13 @@ onBeforeRouteLeave(() => !dirty.value || window.confirm(t('tables.leaveUnsaved')
         <span v-if="kitchen.readyTables.size" class="badge bg-success-soft py-1 text-success">
           <BellRing class="size-3" /> {{ t('tables.readyN', { n: kitchen.readyTables.size }) }}
         </span>
+        <RouterLink
+          v-if="auth.isAdmin && settings.s.selfOrder?.enabled"
+          to="/qr-codes"
+          class="btn btn-outline btn-sm"
+        >
+          <QrCode class="size-4" /> {{ t('selfOrder.qrCodes') }}
+        </RouterLink>
         <button v-if="auth.isAdmin" class="btn btn-outline btn-sm" @click="startEdit">
           <Pencil class="size-4" /> {{ t('tables.editLayout') }}
         </button>
@@ -370,6 +379,8 @@ onBeforeRouteLeave(() => !dirty.value || window.confirm(t('tables.leaveUnsaved')
         </button>
       </template>
     </div>
+
+    <GuestOrdersPanel v-if="!editing" />
 
     <!-- Areas -->
     <div class="flex flex-wrap items-center gap-2">

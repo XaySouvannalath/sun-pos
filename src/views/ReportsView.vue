@@ -5,6 +5,7 @@ import { Download } from 'lucide-vue-next'
 import AnimatedNumber from '@/components/ui/AnimatedNumber.vue'
 import { api } from '@/api'
 import { useSettingsStore } from '@/stores/settings'
+import BranchSelect from '@/components/BranchSelect.vue'
 import { startOfDay } from '@/utils/pos'
 import { downloadCsv } from '@/utils/download'
 import { canDownload } from '@/utils/env'
@@ -18,6 +19,8 @@ import type {
 } from '@/types'
 
 const settings = useSettingsStore()
+/** Which branch the reports cover: this till's (default), another, or 'all'. */
+const branch = ref('')
 
 type Range = 'today' | 'yesterday' | '7' | '30'
 const range = ref<Range>('today')
@@ -34,9 +37,10 @@ const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
 // Day boundaries are worked out here, in the shop's local time, and sent to the server.
 function window_() {
   const today = startOfDay(Date.now())
-  if (range.value === 'today') return { from: today, to: today + DAY }
-  if (range.value === 'yesterday') return { from: today - DAY, to: today }
-  return { from: today - (Number(range.value) - 1) * DAY, to: today + DAY }
+  const b = branch.value ? { branch: branch.value } : {}
+  if (range.value === 'today') return { from: today, to: today + DAY, ...b }
+  if (range.value === 'yesterday') return { from: today - DAY, to: today, ...b }
+  return { from: today - (Number(range.value) - 1) * DAY, to: today + DAY, ...b }
 }
 
 const emptySummary: ReportSummary = {
@@ -58,6 +62,7 @@ const byMethod = ref<BreakdownRow[]>([])
 const byCategory = ref<BreakdownRow[]>([])
 const byType = ref<BreakdownRow[]>([])
 const byStaff = ref<BreakdownRow[]>([])
+const byBranch = ref<BreakdownRow[]>([])
 const loading = ref(false)
 
 let seq = 0
@@ -67,7 +72,7 @@ async function load() {
   const hourly = range.value === 'today' || range.value === 'yesterday'
   loading.value = true
   try {
-    const [summary, time, prods, pay, cat, type, staff] = await Promise.all([
+    const [summary, time, prods, pay, cat, type, staff, branches] = await Promise.all([
       api.reports.summary(w),
       api.reports.salesByTime({ ...w, bucket: hourly ? 'hour' : 'day', tz: timeZone }),
       api.reports.products({ ...w, limit: 100 }),
@@ -75,6 +80,7 @@ async function load() {
       api.reports.breakdown({ ...w, by: 'category' }),
       api.reports.breakdown({ ...w, by: 'orderType' }),
       api.reports.breakdown({ ...w, by: 'staff' }),
+      branch.value === 'all' ? api.reports.breakdown({ ...w, by: 'branch' }) : Promise.resolve([]),
     ])
     if (mine !== seq) return
     kpi.value = summary
@@ -84,11 +90,12 @@ async function load() {
     byCategory.value = cat
     byType.value = type
     byStaff.value = staff
+    byBranch.value = branches
   } finally {
     if (mine === seq) loading.value = false
   }
 }
-watch(range, load, { immediate: true })
+watch([range, branch], load, { immediate: true })
 
 const chart = computed(() => {
   const hourly = range.value === 'today' || range.value === 'yesterday'
@@ -119,6 +126,7 @@ function exportProducts() {
   <div class="page space-y-5">
     <div class="flex flex-wrap items-center gap-3">
       <h1 class="page-title flex-1">{{ t('nav.reports') }}</h1>
+      <BranchSelect v-model="branch" />
       <div class="segmented">
         <button
           v-for="r in ranges"
@@ -274,6 +282,14 @@ function exportProducts() {
             rows: byType.map((r) => ({ ...r, label: t(`orderType.${r.key as OrderType}`) })),
           },
           { title: t('reports.byStaff'), rows: byStaff.map((r) => ({ ...r, label: r.key })) },
+          ...(branch === 'all'
+            ? [
+                {
+                  title: t('branches.byBranch'),
+                  rows: byBranch.map((r) => ({ ...r, label: r.key })),
+                },
+              ]
+            : []),
         ]"
         :key="block.title"
         class="card p-5"

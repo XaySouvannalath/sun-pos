@@ -2,6 +2,9 @@
 // Only relative imports here: this module also runs inside the Vite config (Node).
 import type {
   AuditEntry,
+  Staff,
+  TimeEntry,
+  Timesheet,
   BreakdownBy,
   DailySummary,
   RiskAlert,
@@ -217,6 +220,7 @@ export function breakdown(
   by: BreakdownBy,
   categoryName: (id: string) => string,
   decimals: number,
+  branchName: (o: Order) => string = () => '—',
 ): BreakdownRow[] {
   const m = new Map<string, number>()
   const add = (k: string, v: number) => m.set(k, (m.get(k) ?? 0) + v)
@@ -228,6 +232,7 @@ export function breakdown(
     else if (by === 'category')
       for (const l of o.lines) add(categoryName(l.categoryId), lineTotal(l))
     else if (by === 'orderType') add(o.orderType, o.total)
+    else if (by === 'branch') add(branchName(o), o.total)
     else add(o.staffName || '—', o.total)
   }
   const total = [...m.values()].reduce((a, b) => a + b, 0) || 1
@@ -397,10 +402,12 @@ export function dailySummary(
   audit: AuditEntry[],
   controls: StaffControls,
   decimals: number,
+  time: { entries: TimeEntry[]; staff: Staff[] } = { entries: [], staff: [] },
 ): DailySummary {
   const r = (n: number) => roundTo(n, decimals)
   const from = dayStart(date)
   const to = from + DAY
+  const work = timesheet(time.entries, time.staff, from, to, Date.now(), decimals, 0)
   const day = inRange(orders, from, to)
   const done = day.filter((o) => o.status === 'completed')
   const sales = done.reduce((s, o) => s + o.total, 0)
@@ -459,6 +466,71 @@ export function dailySummary(
     voids: { count: count('void'), value: total('void') },
     refunds: { count: refunded.length, value: r(refunded.reduce((s, o) => s + o.total, 0)) },
     cashOut: total('cashOut'),
+    labour: { hours: work.totalHours, cost: work.totalCost },
     alerts: riskReport(orders, audit, from, to, controls, decimals).alerts,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Time clock
+// ---------------------------------------------------------------------------
+
+const HOUR = 3600000
+
+/**
+ * Hours and pay per person between `from` and `to`. Only the part of each entry inside the
+ * period counts (a shift over midnight is split between the days); an open entry runs to `now`.
+ */
+export function timesheet(
+  entries: TimeEntry[],
+  staff: Staff[],
+  from: number,
+  to: number,
+  now: number,
+  decimals: number,
+  sales: number,
+): Timesheet {
+  const rate = new Map(staff.map((s) => [s.id, s.hourlyRate ?? 0]))
+  const rows = new Map<string, { staffId: string; staffName: string; ms: number; shifts: number }>()
+  const inPeriod: TimeEntry[] = []
+  for (const e of entries) {
+    const start = Math.max(e.clockIn, from)
+    const end = Math.min(e.clockOut ?? now, to)
+    if (end <= start) continue
+    inPeriod.push(e)
+    const row = rows.get(e.staffId) ?? {
+      staffId: e.staffId,
+      staffName: e.staffName,
+      ms: 0,
+      shifts: 0,
+    }
+    row.ms += end - start
+    row.shifts++
+    rows.set(e.staffId, row)
+  }
+  const out = [...rows.values()]
+    .map((x) => {
+      const hours = roundTo(x.ms / HOUR, 2)
+      return {
+        staffId: x.staffId,
+        staffName: x.staffName,
+        hours,
+        cost: roundTo(hours * (rate.get(x.staffId) ?? 0), decimals),
+        shifts: x.shifts,
+      }
+    })
+    .sort((a, b) => b.hours - a.hours)
+  return {
+    entries: inPeriod.sort((a, b) => b.clockIn - a.clockIn),
+    rows: out,
+    totalHours: roundTo(
+      out.reduce((a, x) => a + x.hours, 0),
+      2,
+    ),
+    totalCost: roundTo(
+      out.reduce((a, x) => a + x.cost, 0),
+      decimals,
+    ),
+    sales: roundTo(sales, decimals),
   }
 }

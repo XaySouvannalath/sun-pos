@@ -13,6 +13,8 @@ import {
   ChefHat,
   X,
   ShieldAlert,
+  MapPin,
+  QrCode,
 } from 'lucide-vue-next'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import { api } from '@/api'
@@ -25,7 +27,7 @@ import { useCatalogStore } from '@/stores/catalog'
 import { canDownload } from '@/utils/env'
 import { downloadJson } from '@/utils/download'
 import { clone } from '@/utils/pos'
-import type { ResetScope, Role, Settings, StaffPublic } from '@/types'
+import type { Branch, ResetScope, Role, Settings, StaffPublic } from '@/types'
 
 const settings = useSettingsStore()
 const auth = useAuthStore()
@@ -34,7 +36,14 @@ const toast = useToastStore()
 const catalog = useCatalogStore()
 
 // Staff controls shown as on/off switches.
-const controlToggles = ['approveVoids', 'approveCashOut', 'approveReprint', 'blindCount'] as const
+const controlToggles = [
+  'approveVoids',
+  'approveCashOut',
+  'approveReprint',
+  'blindCount',
+  'requireClockIn',
+] as const
+const selfOrderToggles = ['enabled', 'autoAccept'] as const
 
 // Kitchen and bar stations, edited in a copy and saved on their own.
 const stations = ref(catalog.stations.map((s) => ({ ...s })))
@@ -136,16 +145,36 @@ const preview = computed(() => {
 
 // Staff
 const staffOpen = ref(false)
-const staffForm = ref<{ id?: string; name: string; pin: string; role: Role }>({
+interface StaffForm {
+  id?: string
+  name: string
+  pin: string
+  role: Role
+  branchIds: string[]
+  hourlyRate: number
+}
+const blankStaff = (): StaffForm => ({
   name: '',
   pin: '',
   role: 'cashier',
+  branchIds: [],
+  hourlyRate: 0,
 })
+const staffForm = ref<StaffForm>(blankStaff())
 const staffError = ref('')
 
 function editStaff(u: StaffPublic | null) {
   // PINs are never sent by the server; leave the field empty to keep the current PIN.
-  staffForm.value = u ? { ...u, pin: '' } : { name: '', pin: '', role: 'cashier' }
+  staffForm.value = u
+    ? {
+        id: u.id,
+        name: u.name,
+        role: u.role,
+        pin: '',
+        branchIds: [...(u.branchIds ?? [])],
+        hourlyRate: u.hourlyRate ?? 0,
+      }
+    : blankStaff()
   staffError.value = ''
   staffOpen.value = true
 }
@@ -172,6 +201,40 @@ async function removeStaff() {
   const err = await auth.removeStaff(staffForm.value.id)
   if (err) staffError.value = err
   else staffOpen.value = false
+}
+
+function toggleStaffBranch(id: string) {
+  const ids = staffForm.value.branchIds
+  staffForm.value.branchIds = ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]
+}
+const branchNames = (u: StaffPublic) =>
+  u.branchIds?.length
+    ? auth.branches
+        .filter((b) => u.branchIds!.includes(b.id))
+        .map((b) => b.name)
+        .join(', ')
+    : t('branches.all')
+
+// Branches
+const branchForm = ref<{ id?: string; name: string; address: string; phone: string } | null>(null)
+const branchError = ref('')
+function editBranch(b: Branch | null) {
+  branchError.value = ''
+  branchForm.value = b ? { ...b } : { name: '', address: '', phone: '' }
+}
+async function saveBranch() {
+  const f = branchForm.value
+  if (!f?.name.trim()) return
+  await auth.saveBranch({ ...f, name: f.name.trim() })
+  branchForm.value = null
+  toast.show(t('branches.saved'), 'success')
+}
+async function removeBranch() {
+  const id = branchForm.value?.id
+  if (!id) return
+  const err = await auth.removeBranch(id)
+  if (err) branchError.value = err
+  else branchForm.value = null
 }
 
 // Data
@@ -446,6 +509,41 @@ const confirmText = computed(() => ({
     </section>
 
     <section class="card space-y-4 p-5">
+      <div class="flex flex-wrap items-start gap-3">
+        <div class="min-w-0 flex-1">
+          <h2 class="flex items-center gap-2 font-semibold">
+            <QrCode class="size-4" /> {{ t('selfOrder.settingsTitle') }}
+          </h2>
+          <p class="mt-1 text-sm text-ink-muted">{{ t('selfOrder.settingsHelp') }}</p>
+        </div>
+        <RouterLink to="/qr-codes" class="btn btn-outline btn-sm">
+          {{ t('selfOrder.qrCodes') }}
+        </RouterLink>
+      </div>
+      <ul class="divide-y divide-line/70 rounded-2xl border border-line">
+        <li v-for="c in selfOrderToggles" :key="c" class="flex items-center gap-3 px-4 py-3">
+          <div class="min-w-0 flex-1">
+            <p :id="`so-${c}`" class="text-sm font-semibold">{{ t(`selfOrder.${c}`) }}</p>
+            <p class="text-xs text-ink-muted">{{ t(`selfOrder.${c}Help`) }}</p>
+          </div>
+          <button
+            role="switch"
+            :aria-checked="form.selfOrder[c]"
+            :aria-labelledby="`so-${c}`"
+            class="relative h-7 w-12 shrink-0 rounded-full transition"
+            :class="form.selfOrder[c] ? 'bg-primary' : 'bg-line'"
+            @click="form.selfOrder[c] = !form.selfOrder[c]"
+          >
+            <span
+              class="absolute top-1 left-1 size-5 rounded-full bg-surface shadow transition"
+              :class="form.selfOrder[c] && 'translate-x-5'"
+            />
+          </button>
+        </li>
+      </ul>
+    </section>
+
+    <section class="card space-y-4 p-5">
       <div>
         <h2 class="flex items-center gap-2 font-semibold">
           <ChefHat class="size-4" /> {{ t('settings.stations') }}
@@ -541,7 +639,8 @@ const confirmText = computed(() => ({
             /></span>
             <span class="text-xs text-ink-muted"
               >{{ auth.roleLabel(u.role)
-              }}{{ u.id === auth.user?.id ? ` · ${t('settings.you')}` : '' }}</span
+              }}{{ u.id === auth.user?.id ? ` · ${t('settings.you')}` : ''
+              }}{{ auth.multiBranch ? ` · ${branchNames(u)}` : '' }}</span
             >
           </span>
           <button
@@ -556,6 +655,45 @@ const confirmText = computed(() => ({
       <p class="mt-2 text-xs text-ink-muted">
         {{ t('settings.rolesHelp') }}
       </p>
+    </section>
+
+    <section class="card p-5">
+      <div class="mb-3 flex items-start gap-3">
+        <div class="min-w-0 flex-1">
+          <h2 class="flex items-center gap-2 font-semibold">
+            <MapPin class="size-4" /> {{ t('branches.title') }}
+          </h2>
+          <p class="mt-1 text-sm text-ink-muted">{{ t('branches.help') }}</p>
+        </div>
+        <button class="btn btn-soft btn-sm" @click="editBranch(null)">
+          <Plus class="size-4" /> {{ t('branches.add') }}
+        </button>
+      </div>
+      <ul class="divide-y divide-line/70">
+        <li v-for="(b, i) in auth.branches" :key="b.id" class="flex items-center gap-3 py-3">
+          <span class="min-w-0 flex-1">
+            <span class="flex items-center gap-2 font-medium">
+              {{ b.name }}
+              <span v-if="i === 0" class="badge bg-surface-2 text-ink-muted">{{
+                t('branches.main')
+              }}</span>
+              <span v-if="b.id === auth.branchId" class="badge bg-primary-soft text-primary">{{
+                t('branches.thisTill')
+              }}</span>
+            </span>
+            <span v-if="b.address" class="block truncate text-xs text-ink-muted">{{
+              b.address
+            }}</span>
+          </span>
+          <button
+            class="btn btn-ghost btn-sm btn-icon"
+            :aria-label="t('products.editItem', { name: b.name })"
+            @click="editBranch(b)"
+          >
+            <Pencil class="size-4" />
+          </button>
+        </li>
+      </ul>
     </section>
 
     <section class="card space-y-3 p-5">
@@ -622,6 +760,36 @@ const confirmText = computed(() => ({
             </button>
           </div>
         </div>
+        <div>
+          <label class="label" for="st-rate">{{
+            t('clock.hourlyRate', { currency: settings.s.currency })
+          }}</label>
+          <input
+            id="st-rate"
+            v-model.number="staffForm.hourlyRate"
+            type="number"
+            min="0"
+            step="any"
+            class="input"
+          />
+          <p class="mt-1 text-xs text-ink-muted">{{ t('clock.hourlyRateHelp') }}</p>
+        </div>
+        <div v-if="auth.multiBranch">
+          <span class="label">{{ t('branches.worksAt') }}</span>
+          <div class="flex flex-wrap gap-2">
+            <button
+              v-for="b in auth.branches"
+              :key="b.id"
+              class="chip h-9"
+              :class="staffForm.branchIds.includes(b.id) && 'chip-active'"
+              :aria-pressed="staffForm.branchIds.includes(b.id)"
+              @click="toggleStaffBranch(b.id)"
+            >
+              {{ b.name }}
+            </button>
+          </div>
+          <p class="mt-1 text-xs text-ink-muted">{{ t('branches.worksAtHelp') }}</p>
+        </div>
         <p v-if="staffError" class="text-sm text-danger">{{ staffError }}</p>
       </div>
       <template #footer>
@@ -632,6 +800,46 @@ const confirmText = computed(() => ({
           {{ t('common.cancel') }}
         </button>
         <button class="btn btn-primary" @click="saveStaff">{{ t('common.save') }}</button>
+      </template>
+    </BaseModal>
+
+    <BaseModal
+      :model-value="!!branchForm"
+      :title="branchForm?.id ? t('branches.edit') : t('branches.add')"
+      size="sm"
+      @update:model-value="branchForm = null"
+    >
+      <div v-if="branchForm" class="space-y-3">
+        <label class="block">
+          <span class="label">{{ t('fields.name') }}</span>
+          <input v-model="branchForm.name" class="input" maxlength="60" />
+        </label>
+        <label class="block">
+          <span class="label">{{ t('settings.address') }}</span>
+          <input v-model="branchForm.address" class="input" maxlength="200" />
+        </label>
+        <label class="block">
+          <span class="label">{{ t('fields.phone') }}</span>
+          <input v-model="branchForm.phone" class="input" maxlength="40" />
+        </label>
+        <p class="text-xs text-ink-muted">{{ t('branches.receiptNote') }}</p>
+        <p v-if="branchError" class="text-sm text-danger">{{ branchError }}</p>
+      </div>
+      <template #footer>
+        <button
+          v-if="branchForm?.id && branchForm.id !== auth.branches[0]?.id"
+          class="btn btn-danger"
+          :aria-label="t('common.delete')"
+          @click="removeBranch"
+        >
+          <Trash2 class="size-4" />
+        </button>
+        <button class="btn btn-soft ml-auto" @click="branchForm = null">
+          {{ t('common.cancel') }}
+        </button>
+        <button class="btn btn-primary" :disabled="!branchForm?.name.trim()" @click="saveBranch">
+          {{ t('common.save') }}
+        </button>
       </template>
     </BaseModal>
 

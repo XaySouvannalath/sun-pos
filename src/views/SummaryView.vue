@@ -14,6 +14,8 @@ import { fmtDateTime, languages, t, type Language } from '@/i18n'
 import { api } from '@/api'
 import { useSettingsStore } from '@/stores/settings'
 import { useToastStore } from '@/stores/toast'
+import { useAuthStore } from '@/stores/auth'
+import BranchSelect from '@/components/BranchSelect.vue'
 import { summaryText } from '@/utils/summaryText'
 import { localDate } from '@/utils/rates'
 import { clone } from '@/utils/pos'
@@ -23,24 +25,35 @@ const settings = useSettingsStore()
 const toast = useToastStore()
 
 const date = ref(localDate())
+const auth = useAuthStore()
+/** '' = this till's branch, a branch id, or 'all' for the whole chain. */
+const branch = ref('')
+/** The name shown in the message when there are several branches. */
+const branchLabel = (id: string | undefined) =>
+  !auth.multiBranch
+    ? undefined
+    : id === 'all'
+      ? t('branches.all')
+      : auth.branches.find((b) => b.id === (id || auth.branchId))?.name
 const lang = ref<Language>(settings.s.dailySummary.language)
 const summary = ref<DailySummary | null>(null)
 const outbox = ref<OutboxEntry[]>([])
 
 async function load() {
-  summary.value = await api.summary.get(date.value)
+  summary.value = await api.summary.get(date.value, branch.value || undefined)
 }
 async function loadOutbox() {
   outbox.value = await api.summary.outbox()
 }
 onMounted(() => Promise.all([load(), loadOutbox()]))
-watch(date, (d) => d && load())
+watch([date, branch], ([d]) => d && load())
 
 const text = computed(() =>
   summary.value
     ? summaryText(summary.value, {
         lang: lang.value,
         storeName: settings.s.storeName,
+        branchName: branchLabel(summary.value.branchId),
         money: settings.money,
       })
     : '',
@@ -83,7 +96,7 @@ const sending = ref(false)
 async function sendNow() {
   sending.value = true
   try {
-    await api.summary.send(date.value)
+    await api.summary.send(date.value, branch.value || undefined)
     await loadOutbox()
     toast.show(t('summary.queued'), 'success')
   } finally {
@@ -122,6 +135,7 @@ const entryText = (o: OutboxEntry) =>
   summaryText(o.summary, {
     lang: form.value.language,
     storeName: settings.s.storeName,
+    branchName: branchLabel(o.summary.branchId),
     money: settings.money,
   })
 </script>
@@ -133,6 +147,10 @@ const entryText = (o: OutboxEntry) =>
         <h1 class="page-title">{{ t('summary.pageTitle') }}</h1>
         <p class="mt-1 max-w-2xl text-sm text-ink-muted">{{ t('summary.subtitle') }}</p>
       </div>
+      <label v-if="auth.multiBranch">
+        <span class="label">{{ t('branches.title') }}</span>
+        <BranchSelect v-model="branch" />
+      </label>
       <label class="w-40">
         <span class="label">{{ t('rates.date') }}</span>
         <input v-model="date" type="date" class="input h-10" :max="localDate()" />

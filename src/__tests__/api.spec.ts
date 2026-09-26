@@ -18,6 +18,12 @@ import type {
   Order,
   Product,
   ShiftWithSummary,
+  StaffPublic,
+  GuestOrder,
+  PublicMenu,
+  SelfOrder,
+  TimeEntry,
+  Timesheet,
 } from '@/types'
 
 let api: ReturnType<typeof createApi>
@@ -580,5 +586,286 @@ describe('staff controls and the activity log', () => {
 
     login('0000')
     expect(call('GET', '/reports/daily-summary').status).toBe(403)
+  })
+})
+
+describe('branches', () => {
+  const AIRPORT = 'br-airport'
+  const loginAt = (pin: string, branchId?: string) => {
+    const res = call<{ token: string; branchId: string }>('POST', '/auth/login', { pin, branchId })
+    token = res.body.token
+    return res
+  }
+
+  it('keeps sales, shifts, stock and tables per branch', () => {
+    login()
+    const croissantMain = call<Product>('GET', `/products/${CROISSANT}`).body.stock!
+    call('POST', '/shifts', { openingFloat: 0 })
+    call('POST', '/orders', sale())
+
+    expect(loginAt('1234', AIRPORT).body.branchId).toBe(AIRPORT)
+    // A new branch starts with no stock, no shift and its own tables.
+    expect(call<Product>('GET', `/products/${CROISSANT}`).body.stock).toBe(0)
+    expect(call<ShiftWithSummary | null>('GET', '/shifts/current').body).toBeNull()
+    expect(call('POST', '/orders', sale()).body).toMatchObject({ error: { code: 'NO_OPEN_SHIFT' } })
+    expect(call<FloorPlan>('GET', '/floor').body.tables.map((t) => t.name)).toContain('A1')
+
+    call('POST', '/stock/adjustments', { productId: CROISSANT, delta: 10, reason: 'Delivery' })
+    call('POST', '/shifts', { openingFloat: 0 })
+    const o = call<Order>('POST', '/orders', sale()).body
+    expect(o.branchId).toBe(AIRPORT)
+    expect(call<Product>('GET', `/products/${CROISSANT}`).body.stock).toBe(8)
+
+    // Back at the main branch: its stock only moved for its own sale.
+    loginAt('1234')
+    expect(call<Product>('GET', `/products/${CROISSANT}`).body.stock).toBe(croissantMain - 2)
+    const today = { from: Date.now() - 3600000, to: Date.now() + 1 }
+    const here = call<Page<Order>>('GET', '/orders', null, today).body
+    const all = call<Page<Order>>('GET', '/orders', null, { ...today, branch: 'all' }).body
+    expect(all.total).toBe(here.total + 1)
+    const byBranch = call<{ key: string }[]>('GET', '/reports/breakdown', null, {
+      ...today,
+      by: 'branch',
+      branch: 'all',
+    }).body
+    expect(byBranch.map((r) => r.key).sort()).toEqual(['Airport', 'Riverside'])
+  })
+
+  it('lets staff work only at their branches, and switch between them', () => {
+    login()
+    const cashier = call<StaffPublic[]>('GET', '/staff').body.find((s) => s.role === 'cashier')!
+    call('PATCH', `/staff/${cashier.id}`, { branchIds: [AIRPORT] })
+    expect(loginAt('0000').body.branchId).toBe(AIRPORT)
+    expect(call('POST', '/auth/login', { pin: '0000', branchId: 'br-main' }).status).toBe(403)
+    expect(call('POST', '/auth/branch', { branchId: 'br-main' }).status).toBe(403)
+
+    login()
+    expect(call('POST', '/auth/branch', { branchId: AIRPORT }).body).toMatchObject({
+      branchId: AIRPORT,
+    })
+  })
+
+  it('adds, renames and removes branches, but not the main one', () => {
+    login()
+    const b = call<{ id: string }>('POST', '/branches', { name: 'Night market' }).body
+    expect(call('PATCH', `/branches/${b.id}`, { name: 'Night Market' }).status).toBe(200)
+    expect(call('DELETE', '/branches/br-main').status).toBe(409)
+    expect(call('DELETE', `/branches/${b.id}`).status).toBe(204)
+  })
+})
+
+describe('promotions at checkout', () => {
+  it('applies running promotions on the server and records them', () => {
+    login()
+    call('POST', '/shifts', { openingFloat: 0 })
+    // Turn on "buy 2 get 1" for bakery, every day.
+    call('PATCH', '/promotions/promo-bakery', { active: true, days: [] })
+    const three = sale({
+      lines: [{ productId: CROISSANT, qty: 3, options: [], note: '', discountPct: 0 }],
+      payments: [{ method: 'cash', amount: 20 }],
+    })
+    const o = call<Order>('POST', '/orders', three).body
+    // 3 × 2.75 = 8.25, one free: 5.50 + 10% tax.
+    expect(o).toMatchObject({ subtotal: 8.25, promo: 2.75, total: 6.05 })
+    expect(o.promotions).toEqual([
+      { id: 'promo-bakery', name: 'Bakery: buy 2, get 1 free', amount: 2.75 },
+    ])
+  })
+
+  it('checks promotions and keeps them to managers', () => {
+    login()
+    expect(
+      call('POST', '/promotions', { name: 'Bad', kind: 'percentOff', percent: 0 }).status,
+    ).toBe(400)
+    expect(
+      call('POST', '/promotions', { name: 'X', kind: 'percentOff', percent: 5, timeFrom: '10:00' })
+        .status,
+    ).toBe(400)
+    login('0000')
+    expect(call('GET', '/promotions').status).toBe(200)
+    expect(
+      call('POST', '/promotions', { name: 'Free', kind: 'spendOver', percent: 50 }).status,
+    ).toBe(403)
+  })
+})
+
+describe('clocking in and out', () => {
+  const clock = (pin: string) =>
+    call<{ action: 'in' | 'out'; entry: TimeEntry }>('POST', '/time/clock', { pin })
+  const HOUR = 3600000
+
+  it('clocks in and out with a PIN, without signing in', () => {
+    const inRes = clock('0000')
+    expect(inRes.status).toBe(201)
+    expect(inRes.body).toMatchObject({ action: 'in', entry: { staffName: 'Cashier' } })
+    expect(clock('9999').status).toBe(401)
+
+    login()
+    expect(call<TimeEntry[]>('GET', '/time/now').body.map((e) => e.staffName)).toEqual(['Cashier'])
+    token = null
+    expect(clock('0000').body).toMatchObject({ action: 'out' })
+    login()
+    expect(call<TimeEntry[]>('GET', '/time/now').body).toEqual([])
+  })
+
+  it('can require staff to clock in before they sign in', () => {
+    login()
+    call('PATCH', '/settings', { controls: { requireClockIn: true } })
+    expect(call('POST', '/auth/login', { pin: '0000' }).body).toMatchObject({
+      error: { code: 'NOT_CLOCKED_IN' },
+    })
+    // Managers are not held back.
+    expect(call('POST', '/auth/login', { pin: '1234' }).status).toBe(200)
+    clock('0000')
+    expect(call('POST', '/auth/login', { pin: '0000' }).status).toBe(200)
+  })
+
+  it('adds up hours and pay, and logs corrections', () => {
+    // Without the demo clock-ins, so only this test's hours count.
+    api = createApi(createDb(memoryAdapter({ ...seedData(), timeEntries: [] })))
+    login()
+    call('PATCH', '/staff/staff-cashier', { hourlyRate: 4 })
+    const entry = clock('0000').body.entry
+    const start = Date.now() - 10 * HOUR
+    // A forgotten clock-out, corrected by the manager: 7.5 hours.
+    const fixed = call<TimeEntry>('PATCH', `/time/entries/${entry.id}`, {
+      clockIn: start,
+      clockOut: start + 7.5 * HOUR,
+      note: 'Forgot to clock out',
+    })
+    expect(fixed.body).toMatchObject({ editedBy: 'Manager', note: 'Forgot to clock out' })
+    expect(
+      call('PATCH', `/time/entries/${entry.id}`, { clockIn: start, clockOut: start - 1 }).status,
+    ).toBe(400)
+
+    const sheet = call<Timesheet>('GET', '/time/entries', null, {
+      from: start - HOUR,
+      to: Date.now() + 1,
+    }).body
+    expect(sheet.rows).toEqual([
+      { staffId: 'staff-cashier', staffName: 'Cashier', hours: 7.5, cost: 30, shifts: 1 },
+    ])
+    expect(sheet).toMatchObject({ totalHours: 7.5, totalCost: 30 })
+    expect(call<Page<AuditEntry>>('GET', '/audit').body.items[0]).toMatchObject({
+      type: 'timeEdited',
+      staffName: 'Manager',
+    })
+
+    login('0000')
+    expect(call('GET', '/time/entries').status).toBe(403)
+  })
+})
+
+describe('QR self-ordering', () => {
+  const tableToken = () => {
+    login()
+    const plan = call<FloorPlan>('GET', '/floor').body
+    token = null
+    return { plan, table: plan.tables[0]!, code: plan.tables[0]!.qrToken! }
+  }
+  const guestOrder = (code: string, over: Record<string, unknown> = {}) =>
+    call<GuestOrder & { error?: { code: string } }>('POST', '/public/orders', {
+      table: code,
+      lines: [{ productId: CROISSANT, qty: 2, options: [], note: 'warm please', discountPct: 100 }],
+      note: '',
+      guestName: 'Mai',
+      language: 'lo',
+      ...over,
+    })
+
+  it('shows guests the menu without costs', () => {
+    const { code, table } = tableToken()
+    const menu = call<PublicMenu>('GET', '/public/menu', null, { table: code }).body
+    expect(menu.table).toBe(table.name)
+    expect(menu.products.length).toBeGreaterThan(5)
+    expect(menu.products[0]).not.toHaveProperty('cost')
+    expect(call('GET', '/public/menu', null, { table: 'nope' }).status).toBe(404)
+  })
+
+  it('lets staff accept a guest order onto the table bill and the kitchen', () => {
+    const { code, table } = tableToken()
+    const RICE = 'prd-14' // Food → kitchen
+    const placed = guestOrder(code, {
+      lines: [{ productId: RICE, qty: 2, options: [], note: '', discountPct: 100 }],
+    })
+    expect(placed.status).toBe(201)
+    // The guest cannot give themselves a discount.
+    const rice = call<PublicMenu>('GET', '/public/menu', null, { table: code }).body.products.find(
+      (p) => p.id === RICE,
+    )!
+    expect(placed.body).toMatchObject({ status: 'pending', subtotal: rice.price * 2 })
+
+    login('0000')
+    const pending = call<SelfOrder[]>('GET', '/self-orders').body
+    expect(pending.map((so) => so.id)).toEqual([placed.body.id])
+    const res = call<{ held: HeldOrder }>('POST', `/self-orders/${placed.body.id}/accept`)
+    expect(res.body.held).toMatchObject({ tableId: table.id })
+    expect(res.body.held.lines[0]).toMatchObject({ qty: 2, sentQty: 2, discountPct: 0 })
+    expect(call('POST', `/self-orders/${placed.body.id}/accept`).status).toBe(409)
+    const ticket = call<KitchenTicket[]>('GET', '/tickets').body[0]
+    expect(ticket).toMatchObject({ tableId: table.id, note: 'QR: Mai' })
+
+    token = null
+    const seen = call<GuestOrder[]>('GET', '/public/orders', null, {
+      table: code,
+      ids: placed.body.id,
+    }).body
+    expect(seen[0]!.status).toBe('accepted')
+  })
+
+  it('keeps guest items when a till saves or charges an older copy of the bill', () => {
+    const { code, table } = tableToken()
+    login()
+    call('POST', '/shifts', { openingFloat: 0 })
+    const created = call<HeldOrder>('POST', '/held-orders', {
+      label: 'T',
+      lines: [{ ...sale().lines[0], key: CROISSANT, name: 'Croissant', unitPrice: 2.75, qty: 1 }],
+      tableId: table.id,
+      table: table.name,
+      orderType: 'dine-in',
+      note: '',
+      customerId: null,
+      voids: [],
+    }).body
+    // This till's copy of the bill (the mock returns live objects).
+    const bill = JSON.parse(JSON.stringify(created)) as HeldOrder
+    const placed = guestOrder(code).body
+    expect(call('POST', `/self-orders/${placed.id}/accept`).status).toBe(200)
+
+    // Charging the old copy is refused.
+    const pay = call('POST', '/orders', sale({ heldId: bill.id, heldVersion: bill.updatedAt }))
+    expect(pay.body).toMatchObject({ error: { code: 'BILL_CHANGED' } })
+    // Saving the old copy keeps the guest's items: 1 + 2 croissants.
+    const saved = call<HeldOrder>('PUT', `/held-orders/${bill.id}`, {
+      ...bill,
+      version: bill.updatedAt,
+    }).body
+    expect(saved.lines.reduce((a, l) => a + l.qty, 0)).toBe(3)
+  })
+
+  it('can reject, accept automatically, or be turned off', () => {
+    const { code, plan } = tableToken()
+    const placed = guestOrder(code).body
+    login()
+    const rejected = call<SelfOrder>('POST', `/self-orders/${placed.id}/reject`, {
+      reason: 'Sold out',
+    }).body
+    expect(rejected).toMatchObject({ status: 'rejected', reason: 'Sold out' })
+
+    call('PATCH', '/settings', { selfOrder: { autoAccept: true } })
+    expect(guestOrder(code).body.status).toBe('accepted')
+
+    // Saving the floor plan keeps the QR codes; a new code replaces the old one.
+    const saved = call<FloorPlan>('PUT', '/floor', {
+      ...plan,
+      tables: plan.tables.map(({ qrToken: _q, ...tb }) => tb),
+    }).body
+    expect(saved.tables[0]!.qrToken).toBe(code)
+    const fresh = call<{ qrToken: string }>('POST', `/floor/tables/${plan.tables[0]!.id}/qr`).body
+    expect(fresh.qrToken).not.toBe(code)
+    expect(guestOrder(code).status).toBe(404)
+
+    call('PATCH', '/settings', { selfOrder: { enabled: false } })
+    expect(guestOrder(fresh.qrToken).body).toMatchObject({ error: { code: 'SELF_ORDER_OFF' } })
   })
 })

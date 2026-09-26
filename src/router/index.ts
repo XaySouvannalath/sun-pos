@@ -67,6 +67,30 @@ const router = createRouter({
       meta: { title: 'nav.reports', admin: true },
     },
     {
+      path: '/promotions',
+      name: 'promotions',
+      component: () => import('@/views/PromotionsView.vue'),
+      meta: { title: 'promotions.title', admin: true },
+    },
+    {
+      path: '/qr-codes',
+      name: 'qr-codes',
+      component: () => import('@/views/QrCodesView.vue'),
+      meta: { title: 'selfOrder.qrCodes', admin: true },
+    },
+    {
+      path: '/order/:token',
+      name: 'guest',
+      component: () => import('@/views/GuestOrderView.vue'),
+      meta: { public: true, guest: true },
+    },
+    {
+      path: '/timesheets',
+      name: 'timesheets',
+      component: () => import('@/views/TimesheetsView.vue'),
+      meta: { title: 'clock.timesheets', admin: true },
+    },
+    {
       path: '/activity',
       name: 'activity',
       component: () => import('@/views/ActivityView.vue'),
@@ -101,6 +125,7 @@ const router = createRouter({
 })
 
 router.beforeEach(async (to) => {
+  if (to.meta.guest) return
   const auth = useAuthStore()
   await auth.init()
   if (!to.meta.public && !auth.user) return { name: 'lock', query: { next: to.fullPath } }
@@ -128,6 +153,8 @@ declare module 'vue-router' {
     title?: MessageKey
     public?: boolean
     admin?: boolean
+    /** The guest ordering page: no sign-in, and the till's data is not loaded. */
+    guest?: boolean
   }
 }
 

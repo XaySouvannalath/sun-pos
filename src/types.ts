@@ -5,6 +5,18 @@ export interface Staff {
   name: string
   pin: string
   role: Role
+  /** Branches this person works at. Empty means every branch. */
+  branchIds?: string[]
+  /** Pay per hour, for the labour cost on timesheets (optional). */
+  hourlyRate?: number
+}
+
+/** A shop of the chain. The menu, customers, staff and rates are shared; sales, shifts, tables and stock are per branch. */
+export interface Branch {
+  id: string
+  name: string
+  address: string
+  phone: string
 }
 
 export type Tint = 'sage' | 'amber' | 'rose' | 'sky' | 'lilac' | 'sand'
@@ -40,8 +52,10 @@ export interface Product {
   sku: string
   barcode: string
   emoji: string
-  /** null means stock is not tracked (e.g. made-to-order drinks). */
+  /** null means stock is not tracked (e.g. made-to-order drinks). In API responses: the branch's stock. */
   stock: number | null
+  /** Stored on the server only: stock at branches other than the main one. */
+  branchStock?: Record<string, number>
   lowStockAt: number
   active: boolean
   options: OptionGroup[]
@@ -89,9 +103,50 @@ export interface Payment {
   guest?: number
 }
 
+// ----- Promotions -----
+
+/**
+ * percentOff: `percent` off the matching items (e.g. happy hour).
+ * buyXGetY: for every `buyQty` matching items, `getQty` more are free (the cheapest).
+ * spendOver: `percent` off the order when it reaches `minSpend`.
+ */
+export type PromoKind = 'percentOff' | 'buyXGetY' | 'spendOver'
+
+export interface Promotion {
+  id: string
+  name: string
+  active: boolean
+  kind: PromoKind
+  percent: number
+  buyQty: number
+  getQty: number
+  minSpend: number
+  /** The items it applies to (percentOff, buyXGetY). Both empty: every item. */
+  productIds: string[]
+  categoryIds: string[]
+  /** Days of the week, 0 = Sunday. Empty: every day. */
+  days: number[]
+  /** HH:MM, local time. Both empty: all day. */
+  timeFrom: string
+  timeTo: string
+  /** YYYY-MM-DD, optional. */
+  dateFrom: string
+  dateTo: string
+  /** Branches it runs at. Empty: every branch. */
+  branchIds: string[]
+}
+
+export interface AppliedPromotion {
+  id: string
+  name: string
+  amount: number
+}
+
 export interface Totals {
   itemCount: number
   subtotal: number
+  /** Saved by promotions (missing on older orders: none). */
+  promo?: number
   discount: number
   service: number
   tax: number
@@ -107,6 +162,8 @@ export interface Refund {
 
 export interface Order extends Totals {
   id: string
+  /** The branch that made the sale (missing on older data: the main branch). */
+  branchId?: string
   number: number
   createdAt: number
   lines: OrderLine[]
@@ -125,6 +182,8 @@ export interface Order extends Totals {
   status: 'completed' | 'refunded'
   refund: Refund | null
   pointsEarned: number
+  /** Promotions applied automatically, with what each saved. */
+  promotions?: AppliedPromotion[]
   /** Exchange rates in effect when the order was paid, printed on the receipt. */
   exchangeRates?: RateSnapshot | null
   /** Set when the bill was split equally: the number of guests sharing it. */
@@ -138,6 +197,7 @@ export interface VoidLine extends OrderLine {
 
 export interface HeldOrder {
   id: string
+  branchId?: string
   label: string
   heldAt: number
   lines: OrderLine[]
@@ -173,6 +233,8 @@ export interface DiningTable {
   y: number
   w: number
   h: number
+  /** Secret code in the table's QR link for guest ordering (set by the server). */
+  qrToken?: string
 }
 
 export interface FloorPlan {
@@ -203,6 +265,7 @@ export interface TicketItem {
 
 export interface KitchenTicket {
   id: string
+  branchId?: string
   number: number
   stationId: string
   createdAt: number
@@ -252,6 +315,7 @@ export interface Customer {
 
 export interface StockMove {
   id: string
+  branchId?: string
   at: number
   productId: string
   delta: number
@@ -269,6 +333,7 @@ export interface CashMove {
 
 export interface Shift {
   id: string
+  branchId?: string
   openedAt: number
   openedBy: string
   openingFloat: number
@@ -306,6 +371,14 @@ export interface Settings {
   controls: StaffControls
   /** The end-of-day summary sent to the owner. */
   dailySummary: DailySummarySettings
+  /** Guests order from their phone by scanning the table's QR code. */
+  selfOrder: SelfOrderSettings
+}
+
+export interface SelfOrderSettings {
+  enabled: boolean
+  /** Send guests' orders straight to the bill and kitchen, without staff accepting them. */
+  autoAccept: boolean
 }
 
 export interface StaffControls {
@@ -321,6 +394,40 @@ export interface StaffControls {
   blindCount: boolean
   /** Cash over or short by more than this is flagged. */
   cashTolerance: number
+  /** Cashiers must clock in before they can sign in to a till. */
+  requireClockIn: boolean
+}
+
+// ----- Time clock -----
+
+export interface TimeEntry {
+  id: string
+  staffId: string
+  staffName: string
+  branchId: string
+  clockIn: number
+  /** null while the person is still working. */
+  clockOut: number | null
+  /** The manager who last corrected it, if anyone. */
+  editedBy: string | null
+  note: string
+}
+
+export interface TimesheetRow {
+  staffId: string
+  staffName: string
+  hours: number
+  cost: number
+  shifts: number
+}
+
+export interface Timesheet {
+  entries: TimeEntry[]
+  rows: TimesheetRow[]
+  totalHours: number
+  totalCost: number
+  /** Sales in the same period and branch, for labour cost as a share of sales. */
+  sales: number
 }
 
 export interface DailySummarySettings {
@@ -360,10 +467,12 @@ export type AuditType =
   | 'reprint'
   | 'shiftClosed'
   | 'approvalFailed'
+  | 'timeEdited'
 
 /** One sensitive action, for the activity log. */
 export interface AuditEntry {
   id: string
+  branchId?: string
   at: number
   type: AuditType
   staffId: string
@@ -423,6 +532,8 @@ export interface RiskReport {
 
 export interface DailySummary {
   date: string
+  /** The branch summarised, or 'all' for the whole chain. */
+  branchId?: string
   sales: number
   orders: number
   avg: number
@@ -443,12 +554,16 @@ export interface DailySummary {
   voids: { count: number; value: number }
   refunds: { count: number; value: number }
   cashOut: number
+  /** Hours worked and their cost (from the time clock). */
+  labour: { hours: number; cost: number }
   alerts: RiskAlert[]
 }
 
 /** A summary queued for sending (the backend delivers it). */
 export interface OutboxEntry {
   id: string
+  /** The branch summarised, or 'all' for the whole chain. */
+  branchId?: string
   at: number
   date: string
   trigger: 'shiftClose' | 'time' | 'manual'
@@ -504,11 +619,15 @@ export interface StaffInput {
   role: Role
   /** Required when creating. When updating, leave empty to keep the current PIN. */
   pin?: string
+  branchIds?: string[]
+  hourlyRate?: number
 }
 
 export interface LoginResponse {
   token: string
   user: StaffPublic
+  /** The branch this session works in. */
+  branchId: string
 }
 
 export interface CheckoutLine {
@@ -536,13 +655,18 @@ export interface CheckoutRequest {
   tableId?: string | null
   /** The held (table) order this sale pays for; it is closed with the sale. */
   heldId?: string | null
+  /** The held bill's `updatedAt` when this till opened it (see HeldOrderInput.version). */
+  heldVersion?: number
   /** Cancelled items not yet reported to the kitchen. */
   voids?: TicketLineInput[]
   /** A manager's approval for a discount above the cashier's limit. */
   discountApprovalId?: string | null
 }
 
-export type HeldOrderInput = Omit<HeldOrder, 'id' | 'heldAt' | 'updatedAt'>
+export type HeldOrderInput = Omit<HeldOrder, 'id' | 'heldAt' | 'updatedAt'> & {
+  /** The bill's `updatedAt` when this till opened it; guest orders added since are kept. */
+  version?: number
+}
 
 export type CustomerInput = Pick<Customer, 'name' | 'phone' | 'email' | 'note'>
 
@@ -613,7 +737,7 @@ export interface ProductSales {
   revenue: number
 }
 
-export type BreakdownBy = 'payment' | 'category' | 'orderType' | 'staff'
+export type BreakdownBy = 'payment' | 'category' | 'orderType' | 'staff' | 'branch'
 
 export interface BreakdownRow {
   key: string
@@ -634,7 +758,12 @@ export interface DbData {
   shifts: Shift[]
   held: HeldOrder[]
   exchangeRates: ExchangeRateSet[]
-  floor: FloorPlan
+  branches: Branch[]
+  promotions: Promotion[]
+  timeEntries: TimeEntry[]
+  selfOrders: SelfOrder[]
+  /** Floor plan per branch id. */
+  floors: Record<string, FloorPlan>
   stations: Station[]
   tickets: KitchenTicket[]
   audit: AuditEntry[]
@@ -680,3 +809,78 @@ export interface ImportResult {
   failed: number
   rows: ImportRowResult[]
 }
+
+// ----- QR self-ordering -----
+
+export type SelfOrderStatus = 'pending' | 'accepted' | 'rejected'
+
+/** An order a guest placed from the table's QR code. */
+export interface SelfOrder {
+  id: string
+  branchId: string
+  tableId: string
+  table: string
+  /** Priced by the server. */
+  lines: OrderLine[]
+  note: string
+  guestName: string
+  /** The guest's language, for messages back to them. */
+  language: string
+  /** Items only, before tax and service (promotions apply when the bill is paid). */
+  subtotal: number
+  status: SelfOrderStatus
+  createdAt: number
+  decidedAt: number | null
+  /** Staff name, or "Auto" when orders are accepted automatically. */
+  decidedBy: string | null
+  /** Why it was turned down, shown to the guest. */
+  reason: string
+  /** The table bill the items were added to. */
+  heldId: string | null
+}
+
+/** What a guest's phone sees: the menu without costs, stock numbers or codes. */
+export interface PublicMenu {
+  store: Pick<
+    Settings,
+    'storeName' | 'currency' | 'locale' | 'decimals' | 'taxRate' | 'taxLabel' | 'serviceRate'
+  >
+  branch: string
+  table: string
+  categories: Pick<Category, 'id' | 'name' | 'tint'>[]
+  products: PublicProduct[]
+}
+
+export interface PublicProduct {
+  id: string
+  name: string
+  emoji: string
+  categoryId: string
+  price: number
+  options: OptionGroup[]
+  soldOut: boolean
+}
+
+export interface SelfOrderLineInput {
+  productId: string
+  qty: number
+  options: { group: string; name: string }[]
+  note: string
+}
+
+export interface SelfOrderRequest {
+  /** The table's QR token. */
+  table: string
+  /** Optional id chosen by the phone, so a retried request is not ordered twice. */
+  id?: string
+  lines: SelfOrderLineInput[]
+  note: string
+  guestName: string
+  language: string
+}
+
+/** What the guest sees of their order. */
+export type GuestOrder = Pick<
+  SelfOrder,
+  'id' | 'table' | 'lines' | 'note' | 'subtotal' | 'status' | 'createdAt' | 'reason'
+>

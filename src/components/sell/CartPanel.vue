@@ -20,6 +20,7 @@ import {
   ChefHat,
   LayoutGrid,
   CircleCheck,
+  Tag,
 } from 'lucide-vue-next'
 import LineEditor from './LineEditor.vue'
 import DiscountModal from './DiscountModal.vue'
@@ -305,6 +306,16 @@ function sentLabel(l: { qty: number; sentQty?: number; categoryId: string }) {
         <div class="flex justify-between text-ink-muted">
           <dt>{{ t('cart.subtotalItems', { n: cart.totals.itemCount }) }}</dt>
           <dd>{{ settings.money(cart.totals.subtotal) }}</dd>
+        </div>
+        <div
+          v-for="p in cart.promotions"
+          :key="p.id"
+          class="flex justify-between gap-2 text-success"
+        >
+          <dt class="flex min-w-0 items-center gap-1">
+            <Tag class="size-3.5 shrink-0" /><span class="truncate">{{ p.name }}</span>
+          </dt>
+          <dd>−{{ settings.money(p.amount) }}</dd>
         </div>
         <div v-if="cart.totals.discount" class="flex justify-between text-success">
           <dt>

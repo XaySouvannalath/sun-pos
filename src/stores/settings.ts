@@ -30,6 +30,7 @@ const fallback: Settings = {
     approveReprint: false,
     blindCount: true,
     cashTolerance: 1,
+    requireClockIn: false,
   },
   dailySummary: {
     enabled: false,
@@ -40,6 +41,7 @@ const fallback: Settings = {
     whatsapp: '',
     email: '',
   },
+  selfOrder: { enabled: false, autoAccept: false },
 }
 
 export const useSettingsStore = defineStore('settings', () => {

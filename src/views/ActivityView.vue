@@ -16,11 +16,13 @@ import {
   ArrowDownToLine,
   ArrowUpFromLine,
   Lock,
+  Clock,
 } from 'lucide-vue-next'
 import { fmtDateTime, t, type MessageKey } from '@/i18n'
 import { api } from '@/api'
 import { useSettingsStore } from '@/stores/settings'
 import { alertText } from '@/utils/summaryText'
+import BranchSelect from '@/components/BranchSelect.vue'
 import { startOfDay } from '@/utils/pos'
 import { language } from '@/i18n'
 import type { AuditEntry, AuditType, RiskReport } from '@/types'
@@ -30,11 +32,13 @@ const settings = useSettingsStore()
 type Period = 'today' | 'yesterday' | 'week'
 const period = ref<Period>('today')
 const DAY = 86400000
+const branch = ref('')
 const range = computed(() => {
   const today = startOfDay(Date.now())
-  if (period.value === 'yesterday') return { from: today - DAY, to: today }
-  if (period.value === 'week') return { from: today - 6 * DAY, to: today + DAY }
-  return { from: today, to: today + DAY }
+  const b = branch.value ? { branch: branch.value } : {}
+  if (period.value === 'yesterday') return { from: today - DAY, to: today, ...b }
+  if (period.value === 'week') return { from: today - 6 * DAY, to: today + DAY, ...b }
+  return { from: today, to: today + DAY, ...b }
 })
 
 const report = ref<RiskReport | null>(null)
@@ -66,7 +70,7 @@ async function load(more = false) {
   }
 }
 onMounted(() => load())
-watch([period, type, staff], () => load())
+watch([period, type, staff, branch], () => load())
 
 const warnings = computed(() => report.value?.alerts.filter((a) => a.level === 'warn') ?? [])
 const infos = computed(() => report.value?.alerts.filter((a) => a.level === 'info') ?? [])
@@ -82,6 +86,7 @@ const types: AuditType[] = [
   'reprint',
   'shiftClosed',
   'approvalFailed',
+  'timeEdited',
 ]
 const icons: Record<AuditType, typeof Info> = {
   discount: BadgePercent,
@@ -93,6 +98,7 @@ const icons: Record<AuditType, typeof Info> = {
   reprint: Printer,
   shiftClosed: Lock,
   approvalFailed: KeyRound,
+  timeEdited: Clock,
 }
 const typeLabel = (x: AuditType) => t(`activity.types.${x}` as MessageKey)
 /** Types that look like money leaving: shown in the warning colour. */
@@ -100,10 +106,15 @@ const risky = new Set<AuditType>(['void', 'orderDeleted', 'refund', 'cashOut', '
 
 /** A wrong PIN records what it was for; show that in words. */
 const detailText = (e: AuditEntry) =>
-  e.type === 'approvalFailed' ? t(`approval.actions.${e.detail}` as MessageKey) : e.detail
+  e.type === 'approvalFailed'
+    ? t(`approval.actions.${e.detail}` as MessageKey)
+    : e.type === 'timeEdited'
+      ? // Time corrections record exact times; show them in the local time and language.
+        e.detail.replace(/\d{4}-\d\d-\d\dT[\d:.]+Z/g, (iso) => fmtDateTime(Date.parse(iso)))
+      : e.detail
 
 function amountText(e: AuditEntry) {
-  if (e.type === 'approvalFailed') return ''
+  if (e.type === 'approvalFailed' || e.type === 'timeEdited') return ''
   if (e.type === 'shiftClosed')
     return Math.abs(e.amount) < 0.005
       ? t('shift.balances')
@@ -122,6 +133,7 @@ const lang = computed(() => language.value)
       <h1 class="page-title flex flex-1 items-center gap-2">
         <ShieldAlert class="size-7 text-primary" /> {{ t('activity.title') }}
       </h1>
+      <BranchSelect v-model="branch" />
       <div class="segmented" role="group" :aria-label="t('activity.period')">
         <button
           v-for="p in ['today', 'yesterday', 'week'] as const"

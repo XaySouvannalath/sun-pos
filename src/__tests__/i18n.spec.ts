@@ -97,6 +97,7 @@ describe('daily summary message', () => {
     voids: { count: 1, value: 3 },
     refunds: { count: 0, value: 0 },
     cashOut: 0,
+    labour: { hours: 20, cost: 100 },
     alerts: [{ level: 'warn', code: 'cashShort', staffName: 'Noy', amount: 10, count: 1, pct: 0 }],
   }
   const money = (n: number) => `$${n.toFixed(2)}`

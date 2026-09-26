@@ -1,5 +1,15 @@
 // Typed functions for every Sun POS endpoint. See docs/API.md for details.
 import type {
+  DiningTable,
+  GuestOrder,
+  PublicMenu,
+  SelfOrder,
+  SelfOrderRequest,
+  SelfOrderStatus,
+  TimeEntry,
+  Timesheet,
+  Promotion,
+  Branch,
   Approval,
   ApprovalAction,
   AuditEntry,
@@ -51,15 +61,32 @@ type ProductInput = Omit<Product, 'id'>
 export interface Range {
   from: number
   to: number
+  /** A branch id, or 'all' for the whole chain. Default: the session's branch. */
+  branch?: string
 }
 
 const enc = encodeURIComponent
 
 export const api = {
   auth: {
-    login: (pin: string) => request<LoginResponse>('POST', '/auth/login', { body: { pin } }),
+    /** Signs in at a branch (default: the person's first branch). */
+    login: (pin: string, branchId?: string) =>
+      request<LoginResponse>('POST', '/auth/login', { body: { pin, branchId } }),
     logout: () => request<null>('POST', '/auth/logout'),
     me: () => request<StaffPublic>('GET', '/auth/me'),
+    /** The signed-in person and the branch this till works in. */
+    session: () => request<Omit<LoginResponse, 'token'>>('GET', '/auth/session'),
+    /** Moves this till to another branch (without signing out). */
+    switchBranch: (branchId: string) =>
+      request<Omit<LoginResponse, 'token'>>('POST', '/auth/branch', { body: { branchId } }),
+  },
+
+  branches: {
+    list: () => request<Branch[]>('GET', '/branches'),
+    create: (body: Omit<Branch, 'id'>) => request<Branch>('POST', '/branches', { body }),
+    update: (id: string, body: Partial<Omit<Branch, 'id'>>) =>
+      request<Branch>('PATCH', `/branches/${enc(id)}`, { body }),
+    remove: (id: string) => request<null>('DELETE', `/branches/${enc(id)}`),
   },
 
   staff: {
@@ -89,6 +116,26 @@ export const api = {
   floor: {
     get: () => request<FloorPlan>('GET', '/floor'),
     save: (body: FloorPlan) => request<FloorPlan>('PUT', '/floor', { body }),
+    /** A new QR code for a table; the old one stops working. */
+    newQr: (tableId: string) => request<DiningTable>('POST', `/floor/tables/${enc(tableId)}/qr`),
+  },
+
+  /** Guest ordering from the table's QR code (no sign-in). */
+  guest: {
+    menu: (table: string) => request<PublicMenu>('GET', '/public/menu', { query: { table } }),
+    order: (body: SelfOrderRequest) => request<GuestOrder>('POST', '/public/orders', { body }),
+    orders: (table: string, ids: string[]) =>
+      request<GuestOrder[]>('GET', '/public/orders', { query: { table, ids: ids.join(',') } }),
+  },
+
+  /** Guest orders waiting for staff at this branch. */
+  selfOrders: {
+    list: (status: SelfOrderStatus | 'all' = 'pending') =>
+      request<SelfOrder[]>('GET', '/self-orders', { query: { status } }),
+    accept: (id: string) =>
+      request<{ order: SelfOrder; held: HeldOrder }>('POST', `/self-orders/${enc(id)}/accept`),
+    reject: (id: string, reason: string) =>
+      request<SelfOrder>('POST', `/self-orders/${enc(id)}/reject`, { body: { reason } }),
   },
 
   stations: {
@@ -105,6 +152,29 @@ export const api = {
       request<KitchenTicket[]>('GET', '/tickets', { query }),
     update: (id: string, body: { status?: TicketStatus; item?: number; done?: boolean }) =>
       request<KitchenTicket>('PATCH', `/tickets/${enc(id)}`, { body }),
+  },
+
+  time: {
+    /** Clock in, or out if already in, with a PIN (no sign-in needed). */
+    clock: (pin: string, branchId?: string) =>
+      request<{ action: 'in' | 'out'; entry: TimeEntry }>('POST', '/time/clock', {
+        body: { pin, branchId },
+      }),
+    /** Who is clocked in at this branch now. */
+    now: () => request<TimeEntry[]>('GET', '/time/now'),
+    entries: (query: Range & { staff?: string }) =>
+      request<Timesheet>('GET', '/time/entries', { query: { ...query } }),
+    update: (id: string, body: { clockIn?: number; clockOut?: number | null; note?: string }) =>
+      request<TimeEntry>('PATCH', `/time/entries/${enc(id)}`, { body }),
+    remove: (id: string) => request<null>('DELETE', `/time/entries/${enc(id)}`),
+  },
+
+  promotions: {
+    list: () => request<Promotion[]>('GET', '/promotions'),
+    create: (body: Omit<Promotion, 'id'>) => request<Promotion>('POST', '/promotions', { body }),
+    update: (id: string, body: Partial<Omit<Promotion, 'id'>>) =>
+      request<Promotion>('PATCH', `/promotions/${enc(id)}`, { body }),
+    remove: (id: string) => request<null>('DELETE', `/promotions/${enc(id)}`),
   },
 
   categories: {
@@ -208,7 +278,12 @@ export const api = {
 
   activity: {
     log: (
-      query: Partial<Range> & { type?: AuditType; staff?: string; limit?: number; offset?: number },
+      query: Partial<Range> & {
+        type?: AuditType
+        staff?: string
+        limit?: number
+        offset?: number
+      },
     ) => request<Page<AuditEntry>>('GET', '/audit', { query }),
     risk: (r: Range) => request<RiskReport>('GET', '/reports/risk', { query: { ...r } }),
     /** Records an order thrown away before it was saved or paid. */
@@ -222,10 +297,11 @@ export const api = {
   },
 
   summary: {
-    get: (date: string) =>
-      request<DailySummary>('GET', '/reports/daily-summary', { query: { date } }),
+    get: (date: string, branch?: string) =>
+      request<DailySummary>('GET', '/reports/daily-summary', { query: { date, branch } }),
     outbox: () => request<OutboxEntry[]>('GET', '/summary/outbox'),
-    send: (date: string) => request<OutboxEntry>('POST', '/summary/send', { body: { date } }),
+    send: (date: string, branch?: string) =>
+      request<OutboxEntry>('POST', '/summary/send', { body: { date, branch } }),
   },
 
   reports: {

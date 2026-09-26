@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { ApiError, api } from '@/api'
-import type { Category, Product, Station, StockMove } from '@/types'
+import type { Category, Product, Promotion, Station, StockMove } from '@/types'
 
 export const useCatalogStore = defineStore('catalog', () => {
   const categories = ref<Category[]>([])
@@ -9,6 +9,7 @@ export const useCatalogStore = defineStore('catalog', () => {
   const stockMoves = ref<StockMove[]>([])
   /** Kitchen, bar and other places where orders are prepared. */
   const stations = ref<Station[]>([])
+  const promotions = ref<Promotion[]>([])
 
   const byId = computed(() => new Map(products.value.map((p) => [p.id, p])))
   const categoryById = computed(() => new Map(categories.value.map((c) => [c.id, c])))
@@ -18,11 +19,26 @@ export const useCatalogStore = defineStore('catalog', () => {
   )
 
   async function load() {
-    ;[categories.value, products.value, stations.value] = await Promise.all([
+    ;[categories.value, products.value, stations.value, promotions.value] = await Promise.all([
       api.categories.list(),
       api.products.list(),
       api.stations.list(),
+      api.promotions.list(),
     ])
+  }
+
+  async function savePromotion(p: Promotion) {
+    const { id, ...body } = p
+    const saved = id ? await api.promotions.update(id, body) : await api.promotions.create(body)
+    const i = promotions.value.findIndex((x) => x.id === saved.id)
+    if (i >= 0) promotions.value[i] = saved
+    else promotions.value.push(saved)
+    return saved
+  }
+
+  async function removePromotion(id: string) {
+    await api.promotions.remove(id)
+    promotions.value = promotions.value.filter((x) => x.id !== id)
   }
 
   async function saveStations(list: Partial<Station>[]) {
@@ -117,6 +133,9 @@ export const useCatalogStore = defineStore('catalog', () => {
     stockMoves,
     stations,
     saveStations,
+    promotions,
+    savePromotion,
+    removePromotion,
     byId,
     categoryById,
     activeProducts,

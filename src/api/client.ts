@@ -52,6 +52,18 @@ const translatedCodes = [
   'APPROVAL_REQUIRED',
   'TABLE_BUSY',
   'TABLE_IN_USE',
+  'WRONG_BRANCH',
+  'MAIN_BRANCH',
+  'BRANCH_IN_USE',
+  'NOT_CLOCKED_IN',
+  'ALREADY_CLOCKED_IN',
+  'SELF_ORDER_OFF',
+  'TABLE_NOT_FOUND',
+  'TOO_MANY_ORDERS',
+  'ALREADY_DECIDED',
+  'TABLE_GONE',
+  'BILL_CHANGED',
+  'PRODUCT_UNAVAILABLE',
 ] as const
 
 function errorMessage(code: string, serverMessage: string | undefined, status: number): string {

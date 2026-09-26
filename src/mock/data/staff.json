@@ -3,12 +3,14 @@
     "id": "staff-admin",
     "name": "Manager",
     "pin": "1234",
-    "role": "admin"
+    "role": "admin",
+    "hourlyRate": 6
   },
   {
     "id": "staff-cashier",
     "name": "Cashier",
     "pin": "0000",
-    "role": "cashier"
+    "role": "cashier",
+    "hourlyRate": 3.5
   }
 ]

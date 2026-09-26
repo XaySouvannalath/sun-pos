@@ -1,0 +1,14 @@
+[
+  {
+    "id": "br-main",
+    "name": "Riverside",
+    "address": "123 Riverside Road",
+    "phone": "+856 20 0000 0000"
+  },
+  {
+    "id": "br-airport",
+    "name": "Airport",
+    "address": "Wattay International Airport, Departures",
+    "phone": "+856 20 0000 0001"
+  }
+]

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { t } from '@/i18n'
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   ShoppingCart,
@@ -19,26 +19,38 @@ import {
   ChefHat,
   ShieldAlert,
   MessageSquareText,
+  MapPin,
+  Tag,
+  Clock,
 } from 'lucide-vue-next'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
 import { useSettingsStore } from '@/stores/settings'
 import { useCatalogStore } from '@/stores/catalog'
+import { useSelfOrdersStore } from '@/stores/selfOrders'
+import BranchSwitcher from './BranchSwitcher.vue'
 
 const auth = useAuthStore()
 const settings = useSettingsStore()
 const catalog = useCatalogStore()
 const router = useRouter()
+const branchOpen = ref(false)
+const selfOrders = useSelfOrdersStore()
+// Guest (QR) orders are checked while someone is signed in; the Tables button shows how many wait.
+onMounted(() => selfOrders.start())
+onBeforeUnmount(() => selfOrders.stop())
 
 const links = computed(() =>
   [
     { to: '/', label: t('nav.sell'), icon: ShoppingCart },
-    { to: '/tables', label: t('nav.tables'), icon: LayoutGrid },
+    { to: '/tables', label: t('nav.tables'), icon: LayoutGrid, badge: selfOrders.count },
     { to: '/kitchen', label: t('nav.kitchen'), icon: ChefHat },
     { to: '/orders', label: t('nav.orders'), icon: Receipt },
     { to: '/shift', label: t('nav.shift'), icon: Wallet },
     { to: '/customers', label: t('nav.customers'), icon: Users },
     { to: '/products', label: t('nav.products'), icon: Package, admin: true },
+    { to: '/promotions', label: t('nav.promotions'), icon: Tag, admin: true },
+    { to: '/timesheets', label: t('nav.timesheets'), icon: Clock, admin: true },
     {
       to: '/inventory',
       label: t('nav.stock'),
@@ -94,6 +106,16 @@ async function lock() {
 
     <div class="flex items-center gap-1 px-2 md:flex-col md:gap-2 md:py-4">
       <button
+        v-if="auth.multiBranch"
+        class="flex max-w-20 flex-col items-center gap-0.5 rounded-xl px-1 py-1 text-[10px] font-semibold text-primary hover:bg-surface-2"
+        :title="t('branches.switchTitle')"
+        :aria-label="t('branches.current', { name: auth.branch?.name ?? '' })"
+        @click="branchOpen = true"
+      >
+        <MapPin class="size-5" />
+        <span class="hidden max-w-full truncate md:block">{{ auth.branch?.name }}</span>
+      </button>
+      <button
         class="btn btn-ghost btn-icon"
         :title="settings.isDark ? t('nav.lightTheme') : t('nav.darkTheme')"
         @click="settings.toggleTheme()"
@@ -111,5 +133,6 @@ async function lock() {
         {{ auth.user?.name.charAt(0) }}
       </div>
     </div>
+    <BranchSwitcher v-model="branchOpen" />
   </nav>
 </template>

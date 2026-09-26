@@ -31,20 +31,29 @@ export interface RateConfig {
  * Order totals. Line discounts apply first, then the order discount,
  * then the service charge; tax is charged on the discounted amount plus service.
  */
-export function computeTotals(lines: OrderLine[], discount: Discount, cfg: RateConfig): Totals {
+export function computeTotals(
+  lines: OrderLine[],
+  discount: Discount,
+  cfg: RateConfig,
+  /** Saved by promotions (see utils/promotions.ts); comes off before the manual discount. */
+  promo = 0,
+): Totals {
   const r = (n: number) => roundTo(n, cfg.decimals)
   const subtotal = r(lines.reduce((s, l) => s + lineTotal(l), 0))
+  const promoted = r(Math.min(Math.max(promo, 0), subtotal))
+  const base = subtotal - promoted
   const rawDiscount =
     discount.type === 'percent'
-      ? (subtotal * Math.min(Math.max(discount.value, 0), 100)) / 100
-      : Math.min(Math.max(discount.value, 0), subtotal)
+      ? (base * Math.min(Math.max(discount.value, 0), 100)) / 100
+      : Math.min(Math.max(discount.value, 0), base)
   const disc = r(rawDiscount)
-  const taxable = subtotal - disc
+  const taxable = base - disc
   const service = r((taxable * cfg.serviceRate) / 100)
   const tax = r(((taxable + service) * cfg.taxRate) / 100)
   return {
     itemCount: lines.reduce((s, l) => s + l.qty, 0),
     subtotal,
+    promo: promoted,
     discount: disc,
     service,
     tax,

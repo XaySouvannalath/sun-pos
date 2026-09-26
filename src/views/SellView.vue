@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { t } from '@/i18n'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { ArrowRightLeft, Search, ScanBarcode, ShoppingCart, Wallet, X } from 'lucide-vue-next'
+import { ArrowRightLeft, Search, ScanBarcode, ShoppingCart, Tag, Wallet, X } from 'lucide-vue-next'
+import { promotionRunning } from '@/utils/promotions'
 import ProductCard from '@/components/sell/ProductCard.vue'
 import TopSellers from '@/components/sell/TopSellers.vue'
 import OptionPicker from '@/components/sell/OptionPicker.vue'
@@ -25,6 +26,11 @@ const cart = useCartStore()
 const shift = useShiftStore()
 const auth = useAuthStore()
 const rates = useRatesStore()
+const running = computed(() =>
+  catalog.promotions.filter((p) =>
+    promotionRunning(p, new Date(cart.now), auth.branchId || undefined),
+  ),
+)
 const settings = useSettingsStore()
 const toast = useToastStore()
 
@@ -185,6 +191,19 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
       </div>
 
       <div class="flex-1 space-y-4 overflow-y-auto px-4 py-4 md:px-6">
+        <!-- Promotions running now, so staff can tell customers -->
+        <div v-if="running.length && !query" class="flex flex-wrap gap-2">
+          <span
+            v-for="p in running"
+            :key="p.id"
+            class="inline-flex items-center gap-1.5 rounded-full bg-success-soft px-3 py-1.5 text-xs font-semibold text-success"
+          >
+            <Tag class="size-3.5" /> {{ p.name
+            }}<template v-if="p.timeTo">
+              · {{ t('promotions.until', { time: p.timeTo }) }}</template
+            >
+          </span>
+        </div>
         <TopSellers v-if="!query" @add="(p, el) => quickAdd(p, el)" />
 
         <!-- Categories -->

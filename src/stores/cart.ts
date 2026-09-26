@@ -1,11 +1,13 @@
 import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { api } from '@/api'
+import { ApiError } from '@/api/client'
 import { persisted } from '@/composables/persisted'
 import { t } from '@/i18n'
-import { clone, computeTotals, discountPercent, lineKey, uid } from '@/utils/pos'
+import { clone, computeTotals, discountPercent, lineKey, mergeLines, uid } from '@/utils/pos'
 import { useApprovalStore } from './approval'
 import { useAuthStore } from './auth'
+import { applyPromotions } from '@/utils/promotions'
 import { useSettingsStore } from './settings'
 import { useOrdersStore } from './orders'
 import { useCatalogStore } from './catalog'
@@ -24,6 +26,7 @@ import type {
   Payment,
   Product,
   SelectedOption,
+  SelfOrder,
 } from '@/types'
 
 interface CartState {
@@ -37,6 +40,8 @@ interface CartState {
   customerId: string | null
   /** The saved bill this order was opened from; saving or paying updates that bill. */
   heldId?: string | null
+  /** That bill's `updatedAt` when it was opened here: guest (QR) orders added since are kept. */
+  version?: number | null
   /** Items removed after being sent, to report to the kitchen as cancelled. */
   voids?: VoidLine[]
   /** A manager's approval for the current discount, when it is above the cashier's limit. */
@@ -74,6 +79,7 @@ const emptyCart = (): CartState => ({
   note: '',
   customerId: null,
   heldId: null,
+  version: null,
   voids: [],
   pendingId: null,
   pendingSig: null,
@@ -93,7 +99,31 @@ export const useCartStore = defineStore('cart', () => {
   const held = ref<HeldOrder[]>([])
 
   const settings = useSettingsStore()
-  const totals = computed(() => computeTotals(state.value.lines, state.value.discount, settings.s))
+  // Promotions depend on the time (happy hour), so the clock ticks once a minute.
+  const now = ref(Date.now())
+  if (typeof window !== 'undefined') setInterval(() => (now.value = Date.now()), 60000)
+  const catalogForPromos = useCatalogStore()
+  const promosFor = (lines: OrderLine[]) =>
+    applyPromotions(
+      lines,
+      catalogForPromos.promotions,
+      new Date(now.value),
+      useAuthStore().branchId || undefined,
+      settings.s.decimals,
+    )
+  /** Totals of any bill, with the promotions running now. */
+  const billTotals = (lines: OrderLine[], discount: Discount) =>
+    computeTotals(lines, discount, settings.s, promosFor(lines).total)
+  /** Promotions on the order on screen, with what each saves. */
+  const promotions = computed(() => promosFor(state.value.lines).applied)
+  const totals = computed(() =>
+    computeTotals(
+      state.value.lines,
+      state.value.discount,
+      settings.s,
+      promotions.value.reduce((s, p) => s + p.amount, 0),
+    ),
+  )
   const isEmpty = computed(() => state.value.lines.length === 0)
 
   /** Every line needs an id to be picked when splitting (carts saved by older versions lack them). */
@@ -114,16 +144,16 @@ export const useCartStore = defineStore('cart', () => {
       .map((l) => ({ ...clone(l), qty: Math.min(selection[l.id!]!, l.qty) }))
     if (c.discount.type === 'percent') return { lines, discount: { ...c.discount } }
     const full = totals.value
-    const part = computeTotals(lines, { type: 'percent', value: 0 }, settings.s)
-    const value = full.subtotal
-      ? settings.round((full.discount * part.subtotal) / full.subtotal)
-      : 0
+    const part = billTotals(lines, { type: 'percent', value: 0 })
+    const fullBase = full.subtotal - (full.promo ?? 0)
+    const partBase = part.subtotal - (part.promo ?? 0)
+    const value = fullBase ? settings.round((full.discount * partBase) / fullBase) : 0
     return { lines, discount: { type: 'amount', value } }
   }
 
   function selectionTotals(selection: Selection) {
     const p = portion(selection)
-    return computeTotals(p.lines, p.discount, settings.s)
+    return billTotals(p.lines, p.discount)
   }
 
   function add(p: Product, options: SelectedOption[] = defaultOptions(p), qty = 1) {
@@ -300,6 +330,7 @@ export const useCartStore = defineStore('cart', () => {
       note: c.note,
       customerId: c.customerId,
       voids: c.voids ?? [],
+      version: c.version ?? undefined,
     }
   }
 
@@ -335,6 +366,7 @@ export const useCartStore = defineStore('cart', () => {
       note: h.note,
       customerId: h.customerId,
       heldId: h.id,
+      version: h.updatedAt,
       voids: clone(h.voids ?? []),
       pendingId: null,
       pendingSig: null,
@@ -424,6 +456,7 @@ export const useCartStore = defineStore('cart', () => {
       const h = await api.held.create(heldInput(label()))
       upsertHeld(h)
       c.heldId = h.id
+      c.version = h.updatedAt
     }
     if (!rest.length) return
     const merged = await api.held.merge(state.value.heldId!, rest)
@@ -436,6 +469,24 @@ export const useCartStore = defineStore('cart', () => {
     state.value.table
       ? t('cart.tableN', { n: state.value.table })
       : t('cart.orderN', { n: waiting.value.length + 1 })
+
+  /**
+   * A guest (QR) order was accepted onto its table's bill. If that bill is open here, its items
+   * are added on screen too, already sent, so saving the bill keeps them.
+   */
+  function guestOrderAccepted(order: SelfOrder, h: HeldOrder) {
+    upsertHeld(h)
+    const c = state.value
+    const here = c.heldId === h.id || (!c.heldId && c.tableId && c.tableId === h.tableId)
+    if (!here) return
+    if (isEmpty.value) return load(h)
+    c.lines = mergeLines(
+      c.lines,
+      order.lines.map((l) => ({ ...l, sentQty: l.qty })),
+    )
+    c.heldId = h.id
+    c.version = h.updatedAt
+  }
 
   /** Deletes a held bill (logged; needs a manager if the kitchen had it). */
   async function discardHeld(id: string): Promise<boolean> {
@@ -468,6 +519,7 @@ export const useCartStore = defineStore('cart', () => {
       table: c.table,
       tableId: c.tableId ?? null,
       heldId: all ? (c.heldId ?? null) : null,
+      heldVersion: all && c.heldId ? (c.version ?? undefined) : undefined,
       voids: (c.voids ?? []).map((v) => ticketLine(v, v.qty, true)),
       note: c.note,
       customerId: c.customerId,
@@ -489,7 +541,18 @@ export const useCartStore = defineStore('cart', () => {
       c.pendingId = uid()
       c.pendingSig = sig
     }
-    const order = await api.orders.create({ id: c.pendingId, ...body, payments })
+    let order: Order
+    try {
+      order = await api.orders.create({ id: c.pendingId, ...body, payments })
+    } catch (e) {
+      // Guests added items to this bill from the QR code: show the bill as it is now.
+      if (e instanceof ApiError && e.code === 'BILL_CHANGED' && c.heldId) {
+        await loadHeld()
+        const h = held.value.find((x) => x.id === c.heldId)
+        if (h) load(h)
+      }
+      throw e
+    }
     c.discountApprovalId = null
     if (opts.selection) {
       // Split by items: keep what hasn't been paid for yet.
@@ -510,8 +573,13 @@ export const useCartStore = defineStore('cart', () => {
       c.pendingId = null
       c.pendingSig = null
       if (!c.lines.length) clear()
-      else if (c.heldId)
-        upsertHeld(await api.held.update(c.heldId, heldInput(t('cart.tableN', { n: c.table }))))
+      else if (c.heldId) {
+        const h = await api.held.update(c.heldId, heldInput(t('cart.tableN', { n: c.table })))
+        upsertHeld(h)
+        // The bill may have gained guest (QR) items meanwhile.
+        c.lines = clone(h.lines)
+        c.version = h.updatedAt
+      }
     } else {
       if (body.heldId) held.value = held.value.filter((x) => x.id !== body.heldId)
       clear()
@@ -536,6 +604,9 @@ export const useCartStore = defineStore('cart', () => {
     remove,
     discountPct,
     approveDiscount,
+    promotions,
+    billTotals,
+    now,
     clear,
     loadHeld,
     hold,
@@ -551,6 +622,7 @@ export const useCartStore = defineStore('cart', () => {
     waiting,
     heldForTable,
     discardHeld,
+    guestOrderAccepted,
     mergeHeld,
     portion,
     selectionTotals,

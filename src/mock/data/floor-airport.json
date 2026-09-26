@@ -1,0 +1,65 @@
+{
+  "areas": [
+    {
+      "id": "area-ap",
+      "name": "Kiosk"
+    }
+  ],
+  "tables": [
+    {
+      "id": "tbl-ap1",
+      "name": "A1",
+      "areaId": "area-ap",
+      "seats": 2,
+      "shape": "round",
+      "x": 80,
+      "y": 120,
+      "w": 120,
+      "h": 120
+    },
+    {
+      "id": "tbl-ap2",
+      "name": "A2",
+      "areaId": "area-ap",
+      "seats": 2,
+      "shape": "round",
+      "x": 260,
+      "y": 120,
+      "w": 120,
+      "h": 120
+    },
+    {
+      "id": "tbl-ap3",
+      "name": "A3",
+      "areaId": "area-ap",
+      "seats": 2,
+      "shape": "round",
+      "x": 440,
+      "y": 120,
+      "w": 120,
+      "h": 120
+    },
+    {
+      "id": "tbl-ap4",
+      "name": "A4",
+      "areaId": "area-ap",
+      "seats": 2,
+      "shape": "round",
+      "x": 620,
+      "y": 120,
+      "w": 120,
+      "h": 120
+    },
+    {
+      "id": "tbl-ap5",
+      "name": "A5",
+      "areaId": "area-ap",
+      "seats": 2,
+      "shape": "round",
+      "x": 800,
+      "y": 120,
+      "w": 120,
+      "h": 120
+    }
+  ]
+}

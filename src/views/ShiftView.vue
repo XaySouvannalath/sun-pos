@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { fmtDateTime as fmt, t } from '@/i18n'
-import { ArrowDownToLine, ArrowUpFromLine, Lock, Wallet } from 'lucide-vue-next'
+import { fmtDateTime as fmt, fmtDuration, fmtTime, t } from '@/i18n'
+import { ArrowDownToLine, ArrowUpFromLine, Clock, Lock, Wallet } from 'lucide-vue-next'
 import BaseModal from '@/components/ui/BaseModal.vue'
 import AnimatedNumber from '@/components/ui/AnimatedNumber.vue'
 import { useShiftStore } from '@/stores/shift'
@@ -9,7 +9,7 @@ import { useSettingsStore } from '@/stores/settings'
 import { useToastStore } from '@/stores/toast'
 import { useApprovalStore } from '@/stores/approval'
 import { api } from '@/api'
-import type { ShiftWithSummary } from '@/types'
+import type { ShiftWithSummary, TimeEntry } from '@/types'
 
 const shift = useShiftStore()
 const settings = useSettingsStore()
@@ -33,7 +33,14 @@ const history = ref<ShiftWithSummary[]>([])
 async function loadHistory() {
   history.value = await api.shifts.history(30)
 }
-onMounted(() => Promise.all([shift.load(), loadHistory()]))
+/** Staff clocked in at this branch now. */
+const working = ref<TimeEntry[]>([])
+const now = ref(Date.now())
+async function loadWorking() {
+  working.value = await api.time.now()
+  now.value = Date.now()
+}
+onMounted(() => Promise.all([shift.load(), loadHistory(), loadWorking()]))
 const difference = computed(() =>
   summary.value ? settings.round((Number(counted.value) || 0) - summary.value.expectedCash) : 0,
 )
@@ -213,6 +220,28 @@ async function closeShift() {
         </div>
       </div>
     </template>
+
+    <!-- Who is clocked in -->
+    <section>
+      <h2 class="mb-3 flex items-center gap-2 text-lg font-semibold">
+        <Clock class="size-5 text-primary" /> {{ t('clock.workingNow') }}
+      </h2>
+      <ul v-if="working.length" class="flex flex-wrap gap-2">
+        <li
+          v-for="e in working"
+          :key="e.id"
+          class="card flex items-center gap-3 px-4 py-2.5 text-sm"
+        >
+          <span class="size-2 rounded-full bg-success" />
+          <b>{{ e.staffName }}</b>
+          <span class="text-ink-muted">
+            {{ t('clock.since', { time: fmtTime(e.clockIn) }) }} ·
+            {{ fmtDuration(now - e.clockIn) }}
+          </span>
+        </li>
+      </ul>
+      <p v-else class="text-sm text-ink-muted">{{ t('clock.nobody') }}</p>
+    </section>
 
     <!-- History -->
     <section v-if="history.length">

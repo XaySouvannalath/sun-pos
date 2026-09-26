@@ -6,7 +6,6 @@ import BaseModal from '@/components/ui/BaseModal.vue'
 import { useCartStore } from '@/stores/cart'
 import { useSettingsStore } from '@/stores/settings'
 import { useToastStore } from '@/stores/toast'
-import { computeTotals } from '@/utils/pos'
 import type { HeldOrder } from '@/types'
 
 const open = defineModel<boolean>({ required: true })
@@ -102,7 +101,7 @@ async function merge() {
           </p>
         </component>
         <span class="font-bold">{{
-          settings.money(computeTotals(h.lines, h.discount, settings.s).total)
+          settings.money(cart.billTotals(h.lines, h.discount).total)
         }}</span>
         <template v-if="!merging && !onScreen(h.id)">
           <button

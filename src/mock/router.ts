@@ -4,6 +4,14 @@
 // both call it. A real backend should behave the same way.
 // Only relative imports here: this module also runs inside the Vite config (Node).
 import type {
+  GuestOrder,
+  PublicMenu,
+  SelfOrder,
+  SelfOrderStatus,
+  TimeEntry,
+  PromoKind,
+  Promotion,
+  Branch,
   Approval,
   ApprovalAction,
   AuditEntry,
@@ -51,8 +59,11 @@ import {
   roundTo,
 } from '../utils/pos.ts'
 import { effectiveRates, isDateKey, localDate } from '../utils/rates.ts'
+import { applyPromotions } from '../utils/promotions.ts'
 import type { Db } from './db.ts'
+import { giveQrTokens, qrToken } from './db.ts'
 import {
+  timesheet,
   dailySummary,
   riskReport,
   breakdown,
@@ -116,6 +127,7 @@ const TICKET_STATUSES: TicketStatus[] = ['new', 'preparing', 'ready', 'done']
 export const PLAN = { w: 1000, h: 640 } as const
 const APPROVAL_ACTIONS: ApprovalAction[] = ['discount', 'void', 'refund', 'cashOut', 'reprint']
 const LANGS = ['en', 'lo', 'zh', 'vi'] as const
+const PROMO_KINDS: PromoKind[] = ['percentOff', 'buyXGetY', 'spendOver']
 /** Manager approvals are good for this long, and each can be used once. */
 const APPROVAL_TTL = 30 * 60000
 /** Wrong manager PINs allowed per till user before a short lock. */
@@ -184,9 +196,54 @@ const pub = ({ pin: _pin, ...rest }: Staff): StaffPublic => {
 // ---------------------------------------------------------------------------
 
 export function createApi(db: Db) {
-  const sessions = new Map<string, string>() // token -> staff id
+  const sessions = new Map<string, { staffId: string; branchId: string }>()
   const routes: Route[] = []
   const d = () => db.data
+
+  // ----- Branches: the branch of the current request (set by the dispatcher) -----
+  const mainId = () => d().branches[0]!.id
+  let reqBranch = ''
+  /** The branch this request works in: the session's branch. */
+  const br = () => reqBranch || mainId()
+  /** Records made before branches existed belong to the main branch. */
+  const branchOf = (x: { branchId?: string }) => x.branchId ?? mainId()
+  const inBr = (x: { branchId?: string }, b = br()) => branchOf(x) === b
+  const findBranch = (id: string) => d().branches.find((b) => b.id === id)
+  const canWorkAt = (u: Staff, b: string) => !u.branchIds?.length || u.branchIds.includes(b)
+  /**
+   * Which branch a report covers: `?branch=all` (the whole chain), a branch id, or by
+   * default the session's branch.
+   */
+  function branchFilter(q: Record<string, string>) {
+    const b = q.branch || br()
+    if (b === 'all') return () => true
+    if (!findBranch(b)) throw bad('branch does not exist')
+    return (x: { branchId?: string }) => branchOf(x) === b
+  }
+
+  // Stock is kept per branch: `stock` for the main branch, `branchStock` for the others.
+  function stockOf(p: Product, b = br()): number | null {
+    if (p.stock === null) return null
+    return b === mainId() ? p.stock : (p.branchStock?.[b] ?? 0)
+  }
+  function setStockOf(p: Product, value: number, b = br()) {
+    if (b === mainId()) p.stock = value
+    else p.branchStock = { ...p.branchStock, [b]: value }
+  }
+  /** A product as the API shows it: with this branch's stock. */
+  const view = (p: Product): Product => {
+    const { branchStock: _all, ...rest } = p
+    void _all
+    return { ...rest, stock: stockOf(p) }
+  }
+  /** Stores an edited product (shown with this branch's stock) without touching other branches' stock. */
+  function storeProduct(edited: Product, prev: Product | null): Product {
+    if (edited.stock === null) return { ...edited, branchStock: undefined }
+    const next: Product = { ...edited, stock: prev?.stock ?? null, branchStock: prev?.branchStock }
+    if (next.stock === null) next.stock = 0
+    setStockOf(next, edited.stock)
+    return next
+  }
   const round = (n: number) => roundTo(n, d().settings.decimals)
 
   function route(method: string, path: string, access: Access, handler: Route['handler']) {
@@ -199,7 +256,7 @@ export function createApi(db: Db) {
 
   const findProduct = (id: string) => d().products.find((p) => p.id === id)
   const findCustomer = (id: string) => d().customers.find((c) => c.id === id)
-  const currentShift = () => d().shifts.find((s) => s.closedAt === null) ?? null
+  const currentShift = () => d().shifts.find((s) => s.closedAt === null && inBr(s)) ?? null
   const withSummary = (shift: Shift, user?: Staff | null) => {
     const summary = shiftSummary(shift, d().orders, d().settings.decimals)
     // Blind count: cashiers don't see what the drawer should hold.
@@ -232,6 +289,7 @@ export function createApi(db: Db) {
   ) {
     const entry: AuditEntry = {
       id: uid('aud-'),
+      branchId: br(),
       at: Date.now(),
       type,
       staffId: user.id,
@@ -321,11 +379,21 @@ export function createApi(db: Db) {
     delta: number,
     reason: string,
     by: string,
+    b = br(),
   ): StockMove | null {
     const p = findProduct(productId)
-    if (!p || p.stock === null || delta === 0) return null
-    p.stock += delta
-    const move: StockMove = { id: uid('stk-'), at: Date.now(), productId, delta, reason, by }
+    const now = p ? stockOf(p, b) : null
+    if (!p || now === null || delta === 0) return null
+    setStockOf(p, now + delta, b)
+    const move: StockMove = {
+      id: uid('stk-'),
+      branchId: b,
+      at: Date.now(),
+      productId,
+      delta,
+      reason,
+      by,
+    }
     d().stockMoves.unshift(move)
     if (d().stockMoves.length > 5000) d().stockMoves.length = 5000
     return move
@@ -339,13 +407,79 @@ export function createApi(db: Db) {
 
   // ----- Auth --------------------------------------------------------------
 
+  /** The branch to sign in to: the one asked for, else the person's first branch. */
+  function sessionBranch(user: Staff, wanted: unknown): string {
+    const b = typeof wanted === 'string' && wanted ? wanted : ''
+    if (b && !findBranch(b)) throw bad('branchId does not exist')
+    if (b && !canWorkAt(user, b))
+      throw new HttpError(403, 'WRONG_BRANCH', `${user.name} does not work at this branch`)
+    return b || (user.branchIds?.find((x) => findBranch(x)) ?? mainId())
+  }
+
   route('POST', '/auth/login', 'public', ({ body }) => {
     const pin = str(body.pin, 'pin', { required: true })
     const user = d().staff.find((u) => u.pin === pin)
     if (!user) throw new HttpError(401, 'INVALID_PIN', 'Wrong PIN, try again')
+    const branchId = sessionBranch(user, body.branchId)
+    if (
+      d().settings.controls.requireClockIn &&
+      !isManager(user) &&
+      !d().timeEntries.some((e) => e.staffId === user.id && e.clockOut === null)
+    )
+      throw new HttpError(403, 'NOT_CLOCKED_IN', 'Clock in first, then sign in')
     const token = uid('tok-') + Math.random().toString(36).slice(2)
-    sessions.set(token, user.id)
-    return { token, user: pub(user) }
+    sessions.set(token, { staffId: user.id, branchId })
+    return { token, user: pub(user), branchId }
+  })
+
+  route('GET', '/auth/session', 'staff', ({ user }) => ({ user: pub(user!), branchId: br() }))
+
+  // Move this till (session) to another branch.
+  route('POST', '/auth/branch', 'staff', ({ body, user, token }) => {
+    const branchId = sessionBranch(user!, str(body.branchId, 'branchId', { required: true }))
+    sessions.set(token!, { staffId: user!.id, branchId })
+    return { user: pub(user!), branchId }
+  })
+
+  // ----- Branches ----------------------------------------------------------
+
+  route('GET', '/branches', 'public', () => d().branches)
+
+  function branchFields(body: Record<string, unknown>, base?: Branch) {
+    return {
+      name: str(body.name ?? base?.name, 'name', { required: true, max: 60 }),
+      address: str(body.address ?? base?.address, 'address', { max: 200 }),
+      phone: str(body.phone ?? base?.phone, 'phone', { max: 40 }),
+    }
+  }
+
+  route('POST', '/branches', 'admin', ({ body }) => {
+    const b: Branch = { id: uid('br-'), ...branchFields(body) }
+    d().branches.push(b)
+    d().floors[b.id] = { areas: [{ id: uid('area-'), name: 'Indoor' }], tables: [] }
+    return { __status: 201, value: b }
+  })
+
+  route('PATCH', '/branches/:id', 'admin', ({ params, body }) => {
+    const b = findBranch(params.id!)
+    if (!b) throw notFound('Branch')
+    Object.assign(b, branchFields(body, b))
+    return b
+  })
+
+  route('DELETE', '/branches/:id', 'admin', ({ params }) => {
+    const b = findBranch(params.id!)
+    if (!b) throw notFound('Branch')
+    if (b.id === mainId()) throw conflict('MAIN_BRANCH', 'The main branch cannot be removed')
+    if (
+      d().shifts.some((s) => s.closedAt === null && inBr(s, b.id)) ||
+      d().held.some((h) => inBr(h, b.id))
+    )
+      throw conflict('BRANCH_IN_USE', 'Close its shift and bills first')
+    d().branches = d().branches.filter((x) => x.id !== b.id)
+    for (const u of d().staff) if (u.branchIds) u.branchIds = u.branchIds.filter((x) => x !== b.id)
+    // Its past sales stay in the reports.
+    return null
   })
 
   route('POST', '/auth/logout', 'staff', ({ token }) => {
@@ -354,6 +488,104 @@ export function createApi(db: Db) {
   })
 
   route('GET', '/auth/me', 'staff', ({ user }) => pub(user!))
+
+  // ----- Time clock --------------------------------------------------------
+
+  const openEntry = (staffId: string) =>
+    d().timeEntries.find((e) => e.staffId === staffId && e.clockOut === null)
+
+  // Clocking in and out uses the person's PIN, without signing in to the till.
+  route('POST', '/time/clock', 'public', ({ body }) => {
+    const pin = str(body.pin, 'pin', { required: true })
+    const u = d().staff.find((x) => x.pin === pin)
+    if (!u) throw new HttpError(401, 'INVALID_PIN', 'Wrong PIN, try again')
+    const open = openEntry(u.id)
+    const now = Date.now()
+    if (open) {
+      open.clockOut = now
+      return { action: 'out', entry: open }
+    }
+    const b =
+      typeof body.branchId === 'string' && findBranch(body.branchId) ? body.branchId : mainId()
+    if (!canWorkAt(u, b))
+      throw new HttpError(403, 'WRONG_BRANCH', `${u.name} does not work at this branch`)
+    const entry: TimeEntry = {
+      id: uid('tim-'),
+      staffId: u.id,
+      staffName: u.name,
+      branchId: b,
+      clockIn: now,
+      clockOut: null,
+      editedBy: null,
+      note: '',
+    }
+    d().timeEntries.unshift(entry)
+    if (d().timeEntries.length > 20000) d().timeEntries.length = 20000
+    return { __status: 201, value: { action: 'in', entry } }
+  })
+
+  // Who is working now at this branch.
+  route('GET', '/time/now', 'staff', () =>
+    d().timeEntries.filter((e) => e.clockOut === null && inBr(e)),
+  )
+
+  route('GET', '/time/entries', 'admin', ({ query }) => {
+    const { from, to } = range(query)
+    const inBranch = branchFilter(query)
+    const sales = d()
+      .orders.filter(
+        (o) => inBranch(o) && o.status === 'completed' && o.createdAt >= from && o.createdAt < to,
+      )
+      .reduce((a, o) => a + o.total, 0)
+    return timesheet(
+      d().timeEntries.filter((e) => inBranch(e) && (!query.staff || e.staffId === query.staff)),
+      d().staff,
+      from,
+      to,
+      Date.now(),
+      d().settings.decimals,
+      sales,
+    )
+  })
+
+  const timeText = (ms: number) => new Date(ms).toISOString()
+
+  // Corrections (a forgotten clock-out, a wrong time) are recorded in the activity log.
+  route('PATCH', '/time/entries/:id', 'admin', ({ params, body, user }) => {
+    const e = d().timeEntries.find((x) => x.id === params.id)
+    if (!e) throw notFound('Time entry')
+    const clockIn = num(body.clockIn ?? e.clockIn, 'clockIn', { min: 0 })
+    const clockOut =
+      body.clockOut === null
+        ? null
+        : num(body.clockOut ?? e.clockOut ?? undefined, 'clockOut', { min: 0, fallback: -1 })
+    const out = clockOut === -1 ? null : clockOut
+    if (out !== null && out <= clockIn) throw bad('clockOut must be after clockIn')
+    if (
+      out === null &&
+      d().timeEntries.some((x) => x.id !== e.id && x.staffId === e.staffId && x.clockOut === null)
+    )
+      throw conflict('ALREADY_CLOCKED_IN', `${e.staffName} is already clocked in`)
+    const before = `${timeText(e.clockIn)} → ${e.clockOut ? timeText(e.clockOut) : '…'}`
+    Object.assign(e, {
+      clockIn,
+      clockOut: out,
+      note: body.note === undefined ? e.note : str(body.note, 'note', { max: 200 }),
+      editedBy: user!.name,
+    })
+    audit('timeEdited', user!, {
+      detail: `${e.staffName}: ${before} ⇒ ${timeText(clockIn)} → ${out ? timeText(out) : '…'}`,
+    })
+    return e
+  })
+
+  route('DELETE', '/time/entries/:id', 'admin', ({ params, user }) => {
+    const e = d().timeEntries.find((x) => x.id === params.id)
+    if (!e) throw notFound('Time entry')
+    d().timeEntries = d().timeEntries.filter((x) => x.id !== e.id)
+    audit('timeEdited', user!, { detail: `${e.staffName}: ${timeText(e.clockIn)} deleted` })
+    return null
+  })
 
   // ----- Staff -------------------------------------------------------------
 
@@ -367,12 +599,30 @@ export function createApi(db: Db) {
 
   route('GET', '/staff', 'admin', () => d().staff.map(pub))
 
+  function staffExtras(body: Record<string, unknown>, base?: Staff) {
+    const branchIds =
+      body.branchIds === undefined
+        ? (base?.branchIds ?? [])
+        : arr(body.branchIds, 'branchIds').map((v) => {
+            const id = str(v, 'branchIds[]')
+            if (!findBranch(id)) throw bad('branchIds: branch does not exist')
+            return id
+          })
+    const hourlyRate =
+      body.hourlyRate === undefined || body.hourlyRate === null || body.hourlyRate === ''
+        ? body.hourlyRate === undefined
+          ? (base?.hourlyRate ?? 0)
+          : 0
+        : num(body.hourlyRate, 'hourlyRate', { min: 0 })
+    return { branchIds, hourlyRate }
+  }
+
   route('POST', '/staff', 'admin', ({ body }) => {
     const name = str(body.name, 'name', { required: true, max: 60 })
     const role = oneOf(body.role, 'role', ROLES)
     const pin = str(body.pin, 'pin', { required: true })
     checkPin(pin)
-    const u: Staff = { id: uid('stf-'), name, role, pin }
+    const u: Staff = { id: uid('stf-'), name, role, pin, ...staffExtras(body) }
     d().staff.push(u)
     return { __status: 201, value: pub(u) }
   })
@@ -386,7 +636,7 @@ export function createApi(db: Db) {
     if (pin) checkPin(pin, u.id)
     if (u.role === 'admin' && role !== 'admin' && adminCount() <= 1)
       throw conflict('LAST_MANAGER', 'At least one manager is required')
-    Object.assign(u, { name, role }, pin ? { pin } : {})
+    Object.assign(u, { name, role }, pin ? { pin } : {}, staffExtras(body, u))
     return pub(u)
   })
 
@@ -397,7 +647,7 @@ export function createApi(db: Db) {
     if (u.role === 'admin' && adminCount() <= 1)
       throw conflict('LAST_MANAGER', 'At least one manager is required')
     d().staff = d().staff.filter((x) => x.id !== u.id)
-    for (const [t, id] of sessions) if (id === u.id) sessions.delete(t)
+    for (const [t, sn] of sessions) if (sn.staffId === u.id) sessions.delete(t)
     return null
   })
 
@@ -457,6 +707,7 @@ export function createApi(db: Db) {
           min: 0,
           fallback: cur.cashTolerance,
         }),
+        requireClockIn: bool('requireClockIn', cur.requireClockIn),
       }
     }
     if (body.dailySummary !== undefined) {
@@ -481,6 +732,16 @@ export function createApi(db: Db) {
           c.whatsapp === undefined ? cur.whatsapp : str(c.whatsapp, 'whatsapp', { max: 300 }),
         email: c.email === undefined ? cur.email : str(c.email, 'email', { max: 300 }),
       }
+    }
+    if (body.selfOrder !== undefined) {
+      const c = obj(body.selfOrder, 'selfOrder')
+      const cur = s.selfOrder
+      const bool = (k: 'enabled' | 'autoAccept') => {
+        if (c[k] === undefined) return cur[k]
+        if (typeof c[k] !== 'boolean') throw bad(`selfOrder.${k} must be true or false`)
+        return c[k] as boolean
+      }
+      next.selfOrder = { enabled: bool('enabled'), autoAccept: bool('autoAccept') }
     }
     d().settings = next
     return next
@@ -559,7 +820,11 @@ export function createApi(db: Db) {
 
   // ----- Floor plan --------------------------------------------------------
 
-  route('GET', '/floor', 'staff', () => d().floor)
+  /** This branch's floor plan (a new branch starts with one empty area). */
+  const floorOf = (b = br()): FloorPlan =>
+    (d().floors[b] ??= { areas: [{ id: uid('area-'), name: 'Indoor' }], tables: [] })
+
+  route('GET', '/floor', 'staff', () => floorOf())
 
   route('PUT', '/floor', 'admin', ({ body }) => {
     const areaIds = new Set<string>()
@@ -573,6 +838,8 @@ export function createApi(db: Db) {
     if (!areas.length) throw bad('Add at least one area')
     const ids = new Set<string>()
     const names = new Set<string>()
+    // QR codes stay with their table (the app cannot set them), so printed codes keep working.
+    const tokens = new Map(floorOf().tables.map((tb) => [tb.id, tb.qrToken]))
     const tables = arr(body.tables, 'tables').map((raw, i): DiningTable => {
       const tb = obj(raw, `tables[${i}]`)
       const f = (k: string) => `tables[${i}].${k}`
@@ -597,14 +864,23 @@ export function createApi(db: Db) {
         h,
         x: Math.round(Math.min(Math.max(num(tb.x, f('x')), 0), PLAN.w - w)),
         y: Math.round(Math.min(Math.max(num(tb.y, f('y')), 0), PLAN.h - h)),
+        qrToken: tokens.get(id) || qrToken(),
       }
     })
-    const busy = d().held.find((hd) => hd.tableId && !ids.has(hd.tableId))
+    const busy = d().held.find((hd) => inBr(hd) && hd.tableId && !ids.has(hd.tableId))
     if (busy)
       throw conflict('TABLE_IN_USE', `Table ${busy.table} has an open bill. Close or move it first`)
     const plan: FloorPlan = { areas, tables }
-    d().floor = plan
+    d().floors[br()] = plan
     return plan
+  })
+
+  // A new QR code for a table, e.g. when a printed one was taken. The old one stops working.
+  route('POST', '/floor/tables/:id/qr', 'admin', ({ params }) => {
+    const tb = floorOf().tables.find((x) => x.id === params.id)
+    if (!tb) throw notFound('Table')
+    tb.qrToken = qrToken()
+    return tb
   })
 
   // ----- Kitchen tickets ---------------------------------------------------
@@ -643,6 +919,7 @@ export function createApi(db: Db) {
     let number = d().tickets.reduce((m, tk) => Math.max(m, tk.number), 0)
     const made = [...byStation].map(([stationId, items]): KitchenTicket => ({
       id: uid('tkt-'),
+      branchId: br(),
       number: ++number,
       stationId,
       createdAt: now,
@@ -694,6 +971,7 @@ export function createApi(db: Db) {
     const status = query.status ?? 'active'
     const list = d().tickets.filter(
       (tk) =>
+        inBr(tk) &&
         (!query.stationId || tk.stationId === query.stationId) &&
         (status === 'done' ? tk.status === 'done' : tk.status !== 'done'),
     )
@@ -716,6 +994,77 @@ export function createApi(db: Db) {
       tk.statusAt = Date.now()
     }
     return tk
+  })
+
+  // ----- Promotions --------------------------------------------------------
+
+  function promotionFrom(body: Record<string, unknown>, base?: Promotion): Promotion {
+    const m = { ...base, ...body }
+    const kind = oneOf(m.kind, 'kind', PROMO_KINDS)
+    const ids = (v: unknown, field: string, exists: (id: string) => boolean) =>
+      arr(v ?? [], field).map((x) => {
+        const id = str(x, `${field}[]`)
+        if (!exists(id)) throw bad(`${field}: ${id} does not exist`)
+        return id
+      })
+    const time = (v: unknown, field: string) => {
+      const t = str(v, field)
+      if (t && !/^([01]\d|2[0-3]):[0-5]\d$/.test(t)) throw bad(`${field} must be HH:MM`)
+      return t
+    }
+    const date = (v: unknown, field: string) => {
+      const t = str(v, field)
+      if (t && !isDateKey(t)) throw bad(`${field} must be YYYY-MM-DD`)
+      return t
+    }
+    const p: Promotion = {
+      id: base?.id ?? uid('promo-'),
+      name: str(m.name, 'name', { required: true, max: 80 }),
+      active: m.active === undefined ? true : m.active === true,
+      kind,
+      percent: num(m.percent, 'percent', { min: 0, max: 100, fallback: 0 }),
+      buyQty: num(m.buyQty, 'buyQty', { min: 0, max: 99, int: true, fallback: 0 }),
+      getQty: num(m.getQty, 'getQty', { min: 0, max: 99, int: true, fallback: 0 }),
+      minSpend: num(m.minSpend, 'minSpend', { min: 0, fallback: 0 }),
+      productIds: ids(m.productIds, 'productIds', (id) => !!findProduct(id)),
+      categoryIds: ids(m.categoryIds, 'categoryIds', (id) =>
+        d().categories.some((c) => c.id === id),
+      ),
+      days: arr(m.days ?? [], 'days').map((x) => num(x, 'days[]', { min: 0, max: 6, int: true })),
+      timeFrom: time(m.timeFrom, 'timeFrom'),
+      timeTo: time(m.timeTo, 'timeTo'),
+      dateFrom: date(m.dateFrom, 'dateFrom'),
+      dateTo: date(m.dateTo, 'dateTo'),
+      branchIds: ids(m.branchIds, 'branchIds', (id) => !!findBranch(id)),
+    }
+    if ((kind === 'percentOff' || kind === 'spendOver') && !(p.percent > 0))
+      throw bad('percent must be more than 0')
+    if (kind === 'buyXGetY' && (p.buyQty < 1 || p.getQty < 1))
+      throw bad('buyQty and getQty must be at least 1')
+    if (!!p.timeFrom !== !!p.timeTo) throw bad('Set both timeFrom and timeTo, or neither')
+    return p
+  }
+
+  route('GET', '/promotions', 'staff', () => d().promotions)
+
+  route('POST', '/promotions', 'admin', ({ body }) => {
+    const p = promotionFrom(body)
+    d().promotions.push(p)
+    return { __status: 201, value: p }
+  })
+
+  route('PATCH', '/promotions/:id', 'admin', ({ params, body }) => {
+    const i = d().promotions.findIndex((x) => x.id === params.id)
+    if (i < 0) throw notFound('Promotion')
+    const p = promotionFrom(body, d().promotions[i])
+    d().promotions[i] = p
+    return p
+  })
+
+  route('DELETE', '/promotions/:id', 'admin', ({ params }) => {
+    if (!d().promotions.some((x) => x.id === params.id)) throw notFound('Promotion')
+    d().promotions = d().promotions.filter((x) => x.id !== params.id)
+    return null
   })
 
   // ----- Categories --------------------------------------------------------
@@ -798,15 +1147,17 @@ export function createApi(db: Db) {
 
   route('GET', '/products', 'staff', ({ query }) => {
     const q = (query.q ?? '').toLowerCase()
-    return d().products.filter(
-      (p) =>
-        (!query.categoryId || p.categoryId === query.categoryId) &&
-        (query.active === undefined || String(p.active) === query.active) &&
-        (!q ||
-          p.name.toLowerCase().includes(q) ||
-          p.sku.toLowerCase().includes(q) ||
-          p.barcode.includes(q)),
-    )
+    return d()
+      .products.map(view)
+      .filter(
+        (p) =>
+          (!query.categoryId || p.categoryId === query.categoryId) &&
+          (query.active === undefined || String(p.active) === query.active) &&
+          (!q ||
+            p.name.toLowerCase().includes(q) ||
+            p.sku.toLowerCase().includes(q) ||
+            p.barcode.includes(q)),
+      )
   })
 
   route('GET', '/products/lookup', 'staff', ({ query }) => {
@@ -815,13 +1166,13 @@ export function createApi(db: Db) {
       (x) => x.active && (x.barcode.toLowerCase() === code || x.sku.toLowerCase() === code),
     )
     if (!p) throw notFound('Product')
-    return p
+    return view(p)
   })
 
   route('GET', '/products/:id', 'staff', ({ params }) => {
     const p = findProduct(params.id!)
     if (!p) throw notFound('Product')
-    return p
+    return view(p)
   })
 
   route('POST', '/products', 'admin', ({ body }) => {
@@ -841,9 +1192,9 @@ export function createApi(db: Db) {
     }
     const { id: _ignored, ...rest } = body
     void _ignored
-    const p = productFrom(rest, blank)
+    const p = storeProduct(productFrom(rest, blank), null)
     d().products.push(p)
-    return { __status: 201, value: p }
+    return { __status: 201, value: view(p) }
   })
 
   route('PATCH', '/products/:id', 'admin', ({ params, body }) => {
@@ -851,9 +1202,10 @@ export function createApi(db: Db) {
     if (i < 0) throw notFound('Product')
     const { id: _ignored, ...rest } = body
     void _ignored
-    const p = productFrom(rest, d().products[i]!)
+    const prev = d().products[i]!
+    const p = storeProduct(productFrom(rest, view(prev)), prev)
     d().products[i] = p
-    return p
+    return view(p)
   })
 
   route('DELETE', '/products/:id', 'admin', ({ params }) => {
@@ -865,7 +1217,9 @@ export function createApi(db: Db) {
   // ----- Stock -------------------------------------------------------------
 
   route('GET', '/stock/low', 'staff', () =>
-    d().products.filter((p) => p.active && p.stock !== null && p.stock <= p.lowStockAt),
+    d()
+      .products.map(view)
+      .filter((p) => p.active && p.stock !== null && p.stock <= p.lowStockAt),
   )
 
   route('POST', '/stock/adjustments', 'admin', ({ body, user }) => {
@@ -874,7 +1228,7 @@ export function createApi(db: Db) {
     if (delta === 0) throw bad('delta must not be 0')
     const p = findProduct(productId)
     if (!p) throw notFound('Product')
-    if (p.stock === null)
+    if (stockOf(p) === null)
       throw conflict('STOCK_NOT_TRACKED', 'Stock is not tracked for this product')
     const move = logStock(
       productId,
@@ -882,13 +1236,13 @@ export function createApi(db: Db) {
       str(body.reason, 'reason', { max: 80 }) || 'Adjustment',
       user!.name,
     )
-    return { product: p, move }
+    return { product: view(p), move }
   })
 
   route('GET', '/stock/movements', 'admin', ({ query }) => {
     const limit = num(query.limit, 'limit', { min: 1, max: 1000, int: true, fallback: 50 })
     return d()
-      .stockMoves.filter((m) => !query.productId || m.productId === query.productId)
+      .stockMoves.filter((m) => inBr(m) && (!query.productId || m.productId === query.productId))
       .slice(0, limit)
   })
 
@@ -941,8 +1295,9 @@ export function createApi(db: Db) {
     for (const l of lines) need.set(l.productId, (need.get(l.productId) ?? 0) + l.qty)
     for (const [id, qty] of need) {
       const p = findProduct(id)!
-      if (p.stock !== null && qty > p.stock)
-        throw conflict('OUT_OF_STOCK', `Only ${Math.max(p.stock, 0)} ${p.name} in stock`)
+      const have = stockOf(p)
+      if (have !== null && qty > have)
+        throw conflict('OUT_OF_STOCK', `Only ${Math.max(have, 0)} ${p.name} in stock`)
     }
     return lines
   }
@@ -955,6 +1310,15 @@ export function createApi(db: Db) {
 
     const shift = currentShift()
     if (!shift) throw conflict('NO_OPEN_SHIFT', 'Open a shift before taking payment')
+    if (
+      body.heldId &&
+      typeof body.heldVersion === 'number' &&
+      guestOrdersSince(body.heldId, body.heldVersion).length
+    )
+      throw conflict(
+        'BILL_CHANGED',
+        'Guests added items to this bill from the QR code. Check the bill, then charge again',
+      )
     const lines = buildLines(body)
     const discount = obj(body.orderDiscount ?? { type: 'percent', value: 0 }, 'orderDiscount')
     const orderDiscount = {
@@ -965,10 +1329,13 @@ export function createApi(db: Db) {
     const customer = customerId ? findCustomer(customerId) : undefined
     if (customerId && !customer) throw bad('customerId does not exist')
 
-    const totals = computeTotals(lines, orderDiscount, d().settings)
+    // Promotions are worked out here, from the time of the sale; the till's figure is not trusted.
+    const promos = applyPromotions(lines, d().promotions, new Date(), br(), d().settings.decimals)
+    const totals = computeTotals(lines, orderDiscount, d().settings, promos.total)
     // Discounts above the cashier's limit need a manager.
     const gross = lines.reduce((sum, l) => sum + l.unitPrice * l.qty, 0)
-    const discountValue = gross - totals.subtotal + totals.discount
+    const discountValue = gross - totals.subtotal + totals.discount // not promotions
+    // The cashier's limit counts manual discounts only, not promotions.
     const discountPct = discountPercent(lines, orderDiscount, d().settings)
     const discountBy =
       discountPct > d().settings.controls.discountLimitPct + 0.01
@@ -1002,6 +1369,7 @@ export function createApi(db: Db) {
     const order: Order = {
       ...totals,
       id: id || uid('ord-'),
+      branchId: br(),
       number: d().orders.reduce((m, o) => Math.max(m, o.number), 0) + 1,
       createdAt: Date.now(),
       lines,
@@ -1019,6 +1387,7 @@ export function createApi(db: Db) {
       status: 'completed',
       refund: null,
       pointsEarned: customer ? Math.floor(totals.total * d().settings.pointsPerUnit) : 0,
+      promotions: promos.applied,
     }
     // Keep the day's rates with the sale, so the receipt shows the rates it was paid at.
     const rates = ratesOn(localDate(order.createdAt))
@@ -1066,7 +1435,7 @@ export function createApi(db: Db) {
         detail: `${Math.round(discountPct * 10) / 10}%`,
       })
     // Paying a table's bill closes it.
-    if (body.heldId) d().held = d().held.filter((x) => x.id !== body.heldId)
+    if (body.heldId) d().held = d().held.filter((x) => !(x.id === body.heldId && inBr(x)))
     if (customer) {
       customer.totalSpent = round(customer.totalSpent + order.total)
       customer.points += order.pointsEarned
@@ -1082,8 +1451,10 @@ export function createApi(db: Db) {
     const offset = num(query.offset, 'offset', { min: 0, int: true, fallback: 0 })
     const customerName = (o: Order) =>
       o.customerId ? (findCustomer(o.customerId)?.name ?? '').toLowerCase() : ''
+    const inBranch = branchFilter(query)
     const items = d().orders.filter(
       (o) =>
+        inBranch(o) &&
         o.createdAt >= from &&
         o.createdAt < to &&
         (!query.status || o.status === query.status) &&
@@ -1101,7 +1472,12 @@ export function createApi(db: Db) {
   route('GET', '/orders/top-sellers', 'staff', ({ query }) => {
     const days = num(query.days, 'days', { min: 1, max: 365, fallback: d().settings.topSellerDays })
     const limit = num(query.limit, 'limit', { min: 1, max: 50, int: true, fallback: 8 })
-    return rankProducts(d().orders, productMap(), Date.now() - days * 86400000)
+    return rankProducts(
+      d().orders.filter((o) => inBr(o)),
+      productMap(),
+      Date.now() - days * 86400000,
+    )
+      .map((t) => ({ ...t, product: view(t.product) }))
       .filter((t) => t.product.active)
       .slice(0, limit)
   })
@@ -1144,7 +1520,8 @@ export function createApi(db: Db) {
       shiftId: currentShift()?.id ?? null,
     }
     if (body.restock !== false)
-      for (const l of o.lines) logStock(l.productId, l.qty, `Refund #${o.number}`, user!.name)
+      for (const l of o.lines)
+        logStock(l.productId, l.qty, `Refund #${o.number}`, user!.name, branchOf(o))
     const c = o.customerId ? findCustomer(o.customerId) : undefined
     if (c) {
       c.totalSpent = Math.max(0, round(c.totalSpent - o.total))
@@ -1156,7 +1533,7 @@ export function createApi(db: Db) {
 
   // ----- Held orders -------------------------------------------------------
 
-  const findTable = (id: string) => d().floor.tables.find((tb) => tb.id === id)
+  const findTable = (id: string) => floorOf().tables.find((tb) => tb.id === id)
 
   function tableRef(v: unknown): string | null {
     if (v === null || v === undefined || v === '') return null
@@ -1167,7 +1544,8 @@ export function createApi(db: Db) {
 
   /** A table holds one bill: a second one is merged or moved, not added. */
   function checkTableFree(tableId: string | null, exceptId?: string) {
-    const other = tableId && d().held.find((x) => x.tableId === tableId && x.id !== exceptId)
+    const other =
+      tableId && d().held.find((x) => inBr(x) && x.tableId === tableId && x.id !== exceptId)
     if (other) throw conflict('TABLE_BUSY', `Table ${other.table} already has an open bill`)
   }
 
@@ -1179,6 +1557,7 @@ export function createApi(db: Db) {
     const now = Date.now()
     return {
       id: base?.id ?? uid('hld-'),
+      branchId: br(),
       heldAt: base?.heldAt ?? now,
       updatedAt: now,
       ...head,
@@ -1196,17 +1575,17 @@ export function createApi(db: Db) {
     to: { tableId: string | null; table: string },
   ) {
     if (!fromTableId) return
-    for (const tk of d().tickets)
+    for (const tk of d().tickets.filter((x) => inBr(x)))
       if (tk.tableId === fromTableId && tk.status !== 'done') Object.assign(tk, to)
   }
 
   const findHeld = (id: string) => {
-    const h = d().held.find((x) => x.id === id)
+    const h = d().held.find((x) => x.id === id && inBr(x))
     if (!h) throw notFound('Held order')
     return h
   }
 
-  route('GET', '/held-orders', 'staff', () => d().held)
+  route('GET', '/held-orders', 'staff', () => d().held.filter((h) => inBr(h)))
 
   route('POST', '/held-orders', 'staff', ({ body }) => {
     const h = heldFrom(body)
@@ -1217,6 +1596,10 @@ export function createApi(db: Db) {
   route('PUT', '/held-orders/:id', 'staff', ({ params, body }) => {
     const base = findHeld(params.id!)
     const h = heldFrom(body, base)
+    // Guest orders added to the bill after this till opened it are kept, not overwritten.
+    if (typeof body.version === 'number')
+      for (const so of guestOrdersSince(base.id, body.version))
+        h.lines = mergeLines(h.lines, sentLines(so.lines), () => uid())
     // Saved to another table (moved from the Sell screen): its tickets follow it.
     if (base.tableId !== h.tableId)
       retargetTickets(base.tableId, { tableId: h.tableId, table: h.table })
@@ -1285,6 +1668,224 @@ export function createApi(db: Db) {
   }
 
   // An order cleared from the screen before it was saved or paid.
+  // ----- QR self-ordering --------------------------------------------------
+
+  /** Guest orders accepted onto a held bill after `since`. */
+  const guestOrdersSince = (heldId: string, since: number) =>
+    d().selfOrders.filter(
+      (so) => so.heldId === heldId && so.status === 'accepted' && (so.decidedAt ?? 0) > since,
+    )
+  /** Lines that have gone to the kitchen already. */
+  const sentLines = (lines: OrderLine[]) => lines.map((l) => ({ ...l, sentQty: l.qty }))
+
+  /** The table (and its branch) a QR code belongs to. Guest requests work in that branch. */
+  function guestTable(token: unknown) {
+    if (!d().settings.selfOrder.enabled)
+      throw new HttpError(403, 'SELF_ORDER_OFF', 'Ordering from the table is turned off')
+    const code = str(token, 'table', { required: true, max: 40 })
+    for (const [branchId, plan] of Object.entries(d().floors)) {
+      const table = plan.tables.find((tb) => tb.qrToken === code)
+      if (table && findBranch(branchId)) {
+        reqBranch = branchId
+        return table
+      }
+    }
+    throw new HttpError(404, 'TABLE_NOT_FOUND', 'This QR code is not in use')
+  }
+
+  const guestView = (so: SelfOrder): GuestOrder => ({
+    id: so.id,
+    table: so.table,
+    lines: so.lines,
+    note: so.note,
+    subtotal: so.subtotal,
+    status: so.status,
+    createdAt: so.createdAt,
+    reason: so.reason,
+  })
+
+  /** Adds a guest order to its table's bill (opening one if needed) and sends it to the kitchen. */
+  function acceptSelfOrder(so: SelfOrder, by: string): HeldOrder {
+    const table = floorOf(so.branchId).tables.find((tb) => tb.id === so.tableId)
+    if (!table) throw conflict('TABLE_GONE', 'This table is no longer on the floor plan')
+    const now = Date.now()
+    const label = `Table ${table.name}`
+    let h = d().held.find((x) => inBr(x, so.branchId) && x.tableId === table.id)
+    if (h) {
+      h.lines = mergeLines(h.lines, sentLines(so.lines), () => uid())
+      // Strictly newer than any copy a till holds, so saving that copy keeps these items.
+      h.updatedAt = Math.max(now, h.updatedAt + 1)
+    } else {
+      h = {
+        id: uid('hld-'),
+        branchId: so.branchId,
+        label,
+        heldAt: now,
+        updatedAt: now,
+        lines: sentLines(so.lines).map((l) => ({ ...l, id: uid() })),
+        discount: { type: 'percent', value: 0 },
+        orderType: 'dine-in',
+        table: table.name,
+        tableId: table.id,
+        note: '',
+        customerId: null,
+        voids: [],
+      }
+      d().held.unshift(h)
+    }
+    makeTickets(
+      {
+        label,
+        orderType: 'dine-in',
+        table: table.name,
+        tableId: table.id,
+        note: [so.guestName && `QR: ${so.guestName}`, so.note].filter(Boolean).join(' · '),
+      },
+      so.lines.map((l) => ({
+        productId: l.productId,
+        qty: l.qty,
+        options: l.options.map((o) => o.name),
+        note: l.note,
+      })),
+      `${by} (QR)`,
+    )
+    Object.assign(so, { status: 'accepted', decidedAt: h.updatedAt, decidedBy: by, heldId: h.id })
+    return h
+  }
+
+  // The guest's phone: the menu for the table in the QR code.
+  route('GET', '/public/menu', 'public', ({ query }): PublicMenu => {
+    const table = guestTable(query.table)
+    const s = d().settings
+    const products = d()
+      .products.filter((p) => p.active)
+      .map((p) => {
+        const stock = stockOf(p)
+        return {
+          id: p.id,
+          name: p.name,
+          emoji: p.emoji,
+          categoryId: p.categoryId,
+          price: p.price,
+          options: p.options,
+          soldOut: stock !== null && stock <= 0,
+        }
+      })
+    const used = new Set(products.map((p) => p.categoryId))
+    return {
+      store: {
+        storeName: s.storeName,
+        currency: s.currency,
+        locale: s.locale,
+        decimals: s.decimals,
+        taxRate: s.taxRate,
+        taxLabel: s.taxLabel,
+        serviceRate: s.serviceRate,
+      },
+      branch: findBranch(br())!.name,
+      table: table.name,
+      categories: d()
+        .categories.filter((c) => used.has(c.id))
+        .map(({ id, name, tint }) => ({ id, name, tint })),
+      products,
+    }
+  })
+
+  route('POST', '/public/orders', 'public', ({ body }) => {
+    const table = guestTable(body.table)
+    const id = str(body.id, 'id', { max: 64 })
+    const existing = id ? d().selfOrders.find((so) => so.id === id) : undefined
+    if (existing) {
+      if (existing.tableId !== table.id) throw conflict('DUPLICATE_ID', 'id is already used')
+      return guestView(existing) // retried request: same order back
+    }
+    const raw = arr(body.lines, 'lines')
+    if (raw.length > 50) throw bad('Too many items in one order')
+    // Guests choose items, options and notes; prices and discounts are the shop's.
+    const lines = buildLines({
+      lines: raw.map((r, i) => {
+        const l = obj(r, `lines[${i}]`)
+        return { productId: l.productId, qty: l.qty, options: l.options, note: l.note }
+      }),
+    } as unknown as CheckoutRequest).map((l) => ({ ...l, id: uid() }))
+    const waiting = d().selfOrders.filter(
+      (so) => so.tableId === table.id && so.status === 'pending',
+    ).length
+    if (waiting >= 5)
+      throw new HttpError(
+        429,
+        'TOO_MANY_ORDERS',
+        'Please wait for the staff to accept your orders first',
+      )
+    const lang = typeof body.language === 'string' ? body.language : ''
+    const so: SelfOrder = {
+      id: id || uid('qr-'),
+      branchId: br(),
+      tableId: table.id,
+      table: table.name,
+      lines,
+      note: str(body.note, 'note', { max: 300 }),
+      guestName: str(body.guestName, 'guestName', { max: 40 }),
+      language: (LANGS as readonly string[]).includes(lang) ? lang : 'en',
+      subtotal: round(lines.reduce((a, l) => a + l.unitPrice * l.qty, 0)),
+      status: 'pending',
+      createdAt: Date.now(),
+      decidedAt: null,
+      decidedBy: null,
+      reason: '',
+      heldId: null,
+    }
+    d().selfOrders.unshift(so)
+    if (d().selfOrders.length > 5000) d().selfOrders.length = 5000
+    if (d().settings.selfOrder.autoAccept) acceptSelfOrder(so, 'Auto')
+    return { __status: 201, value: guestView(so) }
+  })
+
+  // The guest's orders at this table (the phone remembers their ids).
+  route('GET', '/public/orders', 'public', ({ query }) => {
+    const table = guestTable(query.table)
+    const ids = new Set((query.ids ?? '').split(',').filter(Boolean))
+    return d()
+      .selfOrders.filter((so) => ids.has(so.id) && so.tableId === table.id)
+      .map(guestView)
+  })
+
+  const findSelfOrder = (id: string) => {
+    const so = d().selfOrders.find((x) => x.id === id && inBr(x))
+    if (!so) throw notFound('Guest order')
+    if (so.status !== 'pending')
+      throw conflict('ALREADY_DECIDED', `This order was already ${so.status}`)
+    return so
+  }
+
+  route('GET', '/self-orders', 'staff', ({ query }) => {
+    const status = query.status ?? 'pending'
+    if (status !== 'all' && !['pending', 'accepted', 'rejected'].includes(status))
+      throw bad('status must be pending, accepted, rejected or all')
+    return d()
+      .selfOrders.filter(
+        (so) => inBr(so) && (status === 'all' || so.status === (status as SelfOrderStatus)),
+      )
+      .slice(0, 100)
+  })
+
+  route('POST', '/self-orders/:id/accept', 'staff', ({ params, user }) => {
+    const so = findSelfOrder(params.id!)
+    const held = acceptSelfOrder(so, user!.name)
+    return { order: so, held }
+  })
+
+  route('POST', '/self-orders/:id/reject', 'staff', ({ params, body, user }) => {
+    const so = findSelfOrder(params.id!)
+    Object.assign(so, {
+      status: 'rejected',
+      decidedAt: Date.now(),
+      decidedBy: user!.name,
+      reason: str(body.reason, 'reason', { max: 200 }),
+    })
+    return so
+  })
+
   route('POST', '/activity/cleared-order', 'staff', ({ body, user }) => {
     logDeleted(user!, {
       total: num(body.total, 'total', { min: 0 }),
@@ -1370,6 +1971,7 @@ export function createApi(db: Db) {
     if (currentShift()) throw conflict('SHIFT_ALREADY_OPEN', 'A shift is already open')
     const s: Shift = {
       id: uid('sft-'),
+      branchId: br(),
       openedAt: Date.now(),
       openedBy: user!.name,
       openingFloat: round(num(body.openingFloat, 'openingFloat', { min: 0, fallback: 0 })),
@@ -1417,7 +2019,7 @@ export function createApi(db: Db) {
   route('GET', '/shifts', 'staff', ({ query, user }) => {
     const limit = num(query.limit, 'limit', { min: 1, max: 200, int: true, fallback: 30 })
     return d()
-      .shifts.filter((s) => s.closedAt !== null)
+      .shifts.filter((s) => s.closedAt !== null && inBr(s))
       .slice(0, limit)
       .map((s) => withSummary(s, user))
   })
@@ -1426,21 +2028,31 @@ export function createApi(db: Db) {
 
   const reportOrders = (query: Record<string, string>) => {
     const { from, to } = range(query)
-    return { from, to, orders: inRange(d().orders, from, to) }
+    return { from, to, orders: inRange(d().orders.filter(branchFilter(query)), from, to) }
   }
 
   route('GET', '/reports/risk', 'admin', ({ query }) => {
     const { from, to } = range(query)
     const s = d().settings
-    return riskReport(d().orders, d().audit, from, to, s.controls, s.decimals)
+    const inBranch = branchFilter(query)
+    return riskReport(
+      d().orders.filter(inBranch),
+      d().audit.filter(inBranch),
+      from,
+      to,
+      s.controls,
+      s.decimals,
+    )
   })
 
   route('GET', '/audit', 'admin', ({ query }) => {
     const { from, to } = range(query)
     const limit = num(query.limit, 'limit', { min: 1, max: 500, int: true, fallback: 100 })
     const offset = num(query.offset, 'offset', { min: 0, int: true, fallback: 0 })
+    const inBranch = branchFilter(query)
     const items = d().audit.filter(
       (e) =>
+        inBranch(e) &&
         e.at >= from &&
         e.at < to &&
         (!query.type || e.type === query.type) &&
@@ -1449,27 +2061,41 @@ export function createApi(db: Db) {
     return { items: items.slice(offset, offset + limit), total: items.length }
   })
 
-  const summaryOf = (date: string) => {
+  /** The day's summary for one branch, or for the whole chain (`'all'`). */
+  const summaryOf = (date: string, branch = br()) => {
     const s = d().settings
-    return dailySummary(date, d().orders, d().shifts, d().audit, s.controls, s.decimals)
+    const f = branchFilter({ branch })
+    return {
+      ...dailySummary(
+        date,
+        d().orders.filter(f),
+        d().shifts.filter(f),
+        d().audit.filter(f),
+        s.controls,
+        s.decimals,
+        { entries: d().timeEntries.filter(f), staff: d().staff },
+      ),
+      branchId: branch,
+    }
   }
 
   route('GET', '/reports/daily-summary', 'admin', ({ query }) =>
-    summaryOf(dateParam(query.date, 'date')),
+    summaryOf(dateParam(query.date, 'date'), query.branch || br()),
   )
 
   /** Queues the day's summary for the backend to send to the owner. */
-  function queueSummary(date: string, trigger: OutboxEntry['trigger']): OutboxEntry {
+  function queueSummary(date: string, trigger: OutboxEntry['trigger'], branch = br()): OutboxEntry {
     const ds = d().settings.dailySummary
     const channels = (['telegram', 'whatsapp', 'email'] as const).filter((c) => ds[c].trim())
     const entry: OutboxEntry = {
       id: uid('out-'),
+      branchId: branch,
       at: Date.now(),
       date,
       trigger,
       channels: [...channels],
       status: 'queued',
-      summary: summaryOf(date),
+      summary: summaryOf(date, branch),
     }
     d().outbox.unshift(entry)
     if (d().outbox.length > 200) d().outbox.length = 200
@@ -1490,7 +2116,8 @@ export function createApi(db: Db) {
       Date.now() >= due.getTime() &&
       !d().outbox.some((o) => o.date === today && o.trigger === 'time')
     ) {
-      queueSummary(today, 'time')
+      // One scheduled message for the whole chain.
+      queueSummary(today, 'time', d().branches.length > 1 ? 'all' : mainId())
       db.save()
     }
     return d().outbox.slice(0, 50)
@@ -1498,7 +2125,11 @@ export function createApi(db: Db) {
 
   route('POST', '/summary/send', 'admin', ({ body }) => ({
     __status: 201,
-    value: queueSummary(dateParam(body.date as string | undefined, 'date'), 'manual'),
+    value: queueSummary(
+      dateParam(body.date as string | undefined, 'date'),
+      'manual',
+      typeof body.branch === 'string' && body.branch ? body.branch : br(),
+    ),
   }))
 
   route('GET', '/reports/summary', 'admin', ({ query }) =>
@@ -1517,13 +2148,21 @@ export function createApi(db: Db) {
   })
 
   route('GET', '/reports/breakdown', 'admin', ({ query }) => {
-    const by = oneOf<BreakdownBy>(query.by, 'by', ['payment', 'category', 'orderType', 'staff'])
+    const by = oneOf<BreakdownBy>(query.by, 'by', [
+      'payment',
+      'category',
+      'orderType',
+      'staff',
+      'branch',
+    ])
     const names = new Map(d().categories.map((c) => [c.id, c.name]))
+    const branchNames = new Map(d().branches.map((b) => [b.id, b.name]))
     return breakdown(
       reportOrders(query).orders,
       by,
       (id) => names.get(id) ?? 'Other',
       d().settings.decimals,
+      (o) => branchNames.get(branchOf(o)) ?? '—',
     )
   })
 
@@ -1659,14 +2298,16 @@ export function createApi(db: Db) {
         })
         if (existing) {
           // Stock changes go through the movement log.
-          const next = productFrom(patch, existing)
-          const delta = stock !== undefined ? stock - (existing.stock ?? 0) : 0
-          if (stock !== undefined && existing.stock === null) next.stock = 0
-          else next.stock = existing.stock
+          const shown = view(existing)
+          const edited = productFrom(patch, shown)
+          const delta = stock !== undefined ? stock - (shown.stock ?? 0) : 0
+          if (stock !== undefined && shown.stock === null) edited.stock = 0
+          else edited.stock = shown.stock
           const changed =
-            !same(next, existing) || delta !== 0 || (stock !== undefined && existing.stock === null)
+            !same(edited, shown) || delta !== 0 || (stock !== undefined && shown.stock === null)
           if (!changed)
             return { action: 'skip', label: existing.name, message: 'Already up to date' }
+          const next = storeProduct(edited, existing)
           d().products[d().products.indexOf(existing)] = next
           if (stock !== undefined && delta !== 0) logStock(next.id, delta, 'Import', 'Import')
           return { action: 'update', label: next.name, message }
@@ -1795,14 +2436,15 @@ export function createApi(db: Db) {
       const qty = cellNum(row.quantity, 'Quantity', { int: true })
       if (qty === undefined) throw bad('Quantity is required')
       const reason = text(row.reason).slice(0, 80) || 'Stock count (import)'
-      if (p.stock === null) {
+      const current = stockOf(p)
+      if (current === null) {
         p.stock = 0
         logStock(p.id, qty, reason, 'Import')
         return { action: 'update', label: p.name, message: `Starts tracking stock: ${qty}` }
       }
-      const delta = qty - p.stock
+      const delta = qty - current
       if (delta === 0) return { action: 'skip', label: p.name, message: `Already ${qty}` }
-      const before = p.stock
+      const before = current
       logStock(p.id, delta, reason, 'Import')
       return { action: 'update', label: p.name, message: `${before} → ${qty}` }
     }),
@@ -1836,12 +2478,20 @@ export function createApi(db: Db) {
       'tickets',
       'audit',
       'outbox',
+      'branches',
+      'promotions',
+      'timeEntries',
+      'selfOrders',
     ] as const
     const next = { ...d() } as DbData
     for (const k of keys) if (data[k] !== undefined) (next[k] as unknown[]) = arr(data[k], k)
-    if (data.floor) next.floor = obj(data.floor, 'floor') as unknown as FloorPlan
+    if (data.floors) next.floors = obj(data.floors, 'floors') as unknown as DbData['floors']
+    // Backups from before branches: one floor plan, for the main branch.
+    else if (data.floor)
+      next.floors = { [next.branches[0]!.id]: obj(data.floor, 'floor') as unknown as FloorPlan }
     if (data.settings) next.settings = { ...d().settings, ...obj(data.settings, 'settings') }
     if (!next.staff.some((u) => u.role === 'admin')) throw bad('The backup has no manager account')
+    giveQrTokens(next)
     db.data = next
     return null
   })
@@ -1863,8 +2513,10 @@ export function createApi(db: Db) {
       pathMatched = true
       if (r.method !== method) continue
       try {
-        const staffId = req.token ? sessions.get(req.token) : undefined
-        const user = staffId ? (d().staff.find((u) => u.id === staffId) ?? null) : null
+        const session = req.token ? sessions.get(req.token) : undefined
+        const user = session ? (d().staff.find((u) => u.id === session.staffId) ?? null) : null
+        // The request works in its session's branch (if that branch still exists).
+        reqBranch = session && findBranch(session.branchId) ? session.branchId : ''
         if (r.access !== 'public' && !user)
           throw new HttpError(401, 'UNAUTHORIZED', 'Please sign in again')
         if (r.access === 'admin' && user!.role !== 'admin')

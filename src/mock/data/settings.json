@@ -18,7 +18,8 @@
     "approveCashOut": true,
     "approveReprint": false,
     "blindCount": true,
-    "cashTolerance": 1
+    "cashTolerance": 1,
+    "requireClockIn": false
   },
   "dailySummary": {
     "enabled": true,
@@ -28,5 +29,9 @@
     "telegram": "",
     "whatsapp": "",
     "email": ""
+  },
+  "selfOrder": {
+    "enabled": true,
+    "autoAccept": false
   }
 }

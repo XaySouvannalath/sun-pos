@@ -1,6 +1,6 @@
 // In-memory database for the mock API, seeded from the JSON files in ./data.
 // Only relative imports here: this module also runs inside the Vite config (Node).
-import type { DbData, ExchangeRateSet, Order, ResetScope } from '../types.ts'
+import type { DbData, ExchangeRateSet, Order, ResetScope, TimeEntry } from '../types.ts'
 import { localDate } from '../utils/rates.ts'
 import settings from './data/settings.json' with { type: 'json' }
 import staff from './data/staff.json' with { type: 'json' }
@@ -10,6 +10,9 @@ import customers from './data/customers.json' with { type: 'json' }
 import orders from './data/orders.json' with { type: 'json' }
 import rates from './data/exchange-rates.json' with { type: 'json' }
 import floor from './data/floor.json' with { type: 'json' }
+import floorAirport from './data/floor-airport.json' with { type: 'json' }
+import branches from './data/branches.json' with { type: 'json' }
+import promotions from './data/promotions.json' with { type: 'json' }
 import stations from './data/stations.json' with { type: 'json' }
 
 /** Where the database is saved between requests (a JSON file, or browser storage). */
@@ -77,8 +80,60 @@ export function demoRates(now = Date.now()): ExchangeRateSet[] {
   return sets
 }
 
+/** Two weeks of demo clock-ins (not today), so timesheets have something to show. */
+export function demoTimeEntries(now = Date.now()): TimeEntry[] {
+  const HOUR = 3600000
+  const list: TimeEntry[] = []
+  const people = [
+    { staffId: 'staff-cashier', staffName: 'Cashier', start: 7.5, hours: 8 },
+    { staffId: 'staff-admin', staffName: 'Manager', start: 10, hours: 7.5 },
+  ]
+  for (let i = 1; i <= 13; i++) {
+    const day = startOfDay(now) - i * DAY
+    const weekday = new Date(day).getDay()
+    for (const [n, p] of people.entries()) {
+      // Each person has one day off a week.
+      if (weekday === (n === 0 ? 2 : 0)) continue
+      // A few minutes early or late, the same every time the data is seeded.
+      const jitter = ((((i * 7 + n * 11) % 13) - 6) * 60000 * 5) / 2
+      const clockIn = day + p.start * HOUR + jitter
+      list.push({
+        id: `tim-demo-${i}-${n}`,
+        staffId: p.staffId,
+        staffName: p.staffName,
+        branchId: 'br-main',
+        clockIn,
+        clockOut: clockIn + p.hours * HOUR - jitter / 2,
+        editedBy: null,
+        note: '',
+      })
+    }
+  }
+  return list
+}
+
+/** A hard-to-guess code for a table's QR link. */
+export function qrToken(): string {
+  const abc = 'abcdefghijkmnpqrstuvwxyz23456789'
+  const bytes = new Uint8Array(12)
+  globalThis.crypto.getRandomValues(bytes)
+  return Array.from(bytes, (b) => abc[b % abc.length]).join('')
+}
+
+/** Gives tables without a QR token one; returns whether any changed. */
+export function giveQrTokens(data: DbData): boolean {
+  let changed = false
+  for (const plan of Object.values(data.floors))
+    for (const tb of plan.tables)
+      if (!tb.qrToken) {
+        tb.qrToken = qrToken()
+        changed = true
+      }
+  return changed
+}
+
 export function seedData(now = Date.now()): DbData {
-  return {
+  const data: DbData = {
     settings: clone(settings) as DbData['settings'],
     staff: clone(staff) as DbData['staff'],
     categories: clone(categories) as DbData['categories'],
@@ -89,12 +144,21 @@ export function seedData(now = Date.now()): DbData {
     shifts: [],
     held: [],
     exchangeRates: demoRates(now),
-    floor: clone(floor) as DbData['floor'],
+    branches: clone(branches) as DbData['branches'],
+    promotions: clone(promotions) as DbData['promotions'],
+    timeEntries: demoTimeEntries(now),
+    selfOrders: [],
+    floors: {
+      'br-main': clone(floor) as DbData['floors'][string],
+      'br-airport': clone(floorAirport) as DbData['floors'][string],
+    },
     stations: clone(stations) as DbData['stations'],
     tickets: [],
     audit: [],
     outbox: [],
   }
+  giveQrTokens(data)
+  return data
 }
 
 export function createDb(adapter: DbAdapter): Db {
@@ -107,15 +171,23 @@ export function createDb(adapter: DbAdapter): Db {
     // Settings groups added later: fill in any missing fields.
     data.settings.controls = { ...seed.controls, ...loaded.settings.controls }
     data.settings.dailySummary = { ...seed.dailySummary, ...loaded.settings.dailySummary }
+    data.settings.selfOrder = { ...seed.selfOrder, ...loaded.settings.selfOrder }
     // Older saves: categories without a station, held orders without a table.
     const seedStations = new Map(seedData().categories.map((c) => [c.id, c.stationId]))
     for (const c of data.categories) c.stationId ??= seedStations.get(c.id) ?? null
+    // Before branches: one floor plan, which becomes the main branch's.
+    const old = loaded as DbData & { floor?: DbData['floors'][string] }
+    if (old.floor && !loaded.floors) data.floors = { [data.branches[0]!.id]: old.floor }
+    delete (data as { floor?: unknown }).floor
     for (const h of data.held) {
       h.tableId ??= null
       h.voids ??= []
       h.updatedAt ??= h.heldAt
     }
   }
+
+  // Every table gets a QR code for guest ordering. Tokens are saved at once, so printed codes keep working.
+  const missingQr = giveQrTokens(data)
 
   const db: Db = {
     data,
@@ -130,11 +202,13 @@ export function createDb(adapter: DbAdapter): Db {
         db.data.tickets = []
         db.data.audit = []
         db.data.outbox = []
+        db.data.timeEntries = scope === 'demo' ? demoTimeEntries() : []
+        db.data.selfOrders = []
       }
       db.save()
     },
   }
-  if (!loaded) db.save()
+  if (!loaded || missingQr) db.save()
   return db
 }
 

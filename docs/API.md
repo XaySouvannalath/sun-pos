@@ -6,7 +6,7 @@ setting. The screens don't need to change.
 
 - [How it works](#how-it-works) and [switching to your backend](#switching-to-your-backend)
 - [The mock backend](#the-mock-backend) and its JSON data files
-- [REST API reference](#rest-api-reference): 74 endpoints
+- [REST API reference](#rest-api-reference): 96 endpoints
 - [Building your backend](#building-your-backend): a checklist and the contract tests
 
 Types for every request and response are in [`src/types.ts`](../src/types.ts).
@@ -47,14 +47,14 @@ Restart `npm run dev` after changing `.env.local`. With `VITE_API_PROXY`, your b
 
 ## The mock backend
 
-| File                           | Purpose                                                                                                                                                                                                                |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/mock/data/*.json`         | Seed data: `settings`, `staff`, `categories`, `products`, `customers`, `orders` (about 220 demo sales), `exchange-rates` (a week of demo rates), `floor` (tables), `stations`. Edit these to change the starting data. |
-| `src/mock/router.ts`           | Every endpoint: routing, validation, roles and business rules. **This is the reference implementation for your backend.**                                                                                              |
-| `src/mock/logic.ts`            | Top-seller ranking, shift cash-up and report calculations.                                                                                                                                                             |
-| `src/mock/db.ts`               | Loads the seed data and saves changes.                                                                                                                                                                                 |
-| `src/mock/node/vite-plugin.ts` | Serves the mock from `npm run dev` and `npm run preview`.                                                                                                                                                              |
-| `src/mock/browser.ts`          | Runs the mock inside the browser (`VITE_API_MODE=local`).                                                                                                                                                              |
+| File                           | Purpose                                                                                                                                                                                                                                                                         |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/mock/data/*.json`         | Seed data: `settings`, `staff`, `categories`, `products`, `customers`, `orders` (about 220 demo sales), `exchange-rates` (a week of demo rates), `floor` and `floor-airport` (tables per branch), `branches`, `promotions`, `stations`. Edit these to change the starting data. |
+| `src/mock/router.ts`           | Every endpoint: routing, validation, roles and business rules. **This is the reference implementation for your backend.**                                                                                                                                                       |
+| `src/mock/logic.ts`            | Top-seller ranking, shift cash-up and report calculations.                                                                                                                                                                                                                      |
+| `src/mock/db.ts`               | Loads the seed data and saves changes.                                                                                                                                                                                                                                          |
+| `src/mock/node/vite-plugin.ts` | Serves the mock from `npm run dev` and `npm run preview`.                                                                                                                                                                                                                       |
+| `src/mock/browser.ts`          | Runs the mock inside the browser (`VITE_API_MODE=local`).                                                                                                                                                                                                                       |
 
 - Changes are saved to **`.mock-db.json`** in the project root, so they survive a restart. This file is git-ignored.
 - Run **`npm run mock:reset`** (or delete the file) to start again from the JSON seed files.
@@ -111,30 +111,70 @@ Restart `npm run dev` after changing `.env.local`. With `VITE_API_PROXY`, your b
   | `BARCODE_TAKEN`        | 409    | Another product has that barcode.                                                 |
   | `LAST_MANAGER`         | 409    | The last manager can't be removed or made a cashier.                              |
   | `CANNOT_DELETE_SELF`   | 409    | Staff can't delete their own account.                                             |
+  | `WRONG_BRANCH`         | 403    | The person doesn't work at that branch.                                           |
+  | `NOT_CLOCKED_IN`       | 403    | `controls.requireClockIn` is on and the cashier hasn't clocked in.                |
+  | `SELF_ORDER_OFF`       | 403    | QR ordering is turned off (`settings.selfOrder.enabled`).                         |
+  | `TABLE_NOT_FOUND`      | 404    | No table has that QR code (it was replaced or the table removed).                 |
+  | `MAIN_BRANCH`          | 409    | The first (main) branch can't be deleted.                                         |
+  | `BRANCH_IN_USE`        | 409    | The branch has sales, shifts or open bills.                                       |
+  | `ALREADY_CLOCKED_IN`   | 409    | A correction would leave a person with two open clock-ins.                        |
+  | `ALREADY_DECIDED`      | 409    | The guest order was already accepted or turned down.                              |
+  | `TABLE_GONE`           | 409    | The guest order's table was removed from the floor plan.                          |
+  | `BILL_CHANGED`         | 409    | Guests added items to the bill after this till opened it (see Held orders).       |
+  | `TOO_MANY_ORDERS`      | 429    | A table has 5 guest orders waiting for staff.                                     |
 
 ### Auth
 
-| Method | Path           | Access | Body / query        | Response                       |
-| ------ | -------------- | ------ | ------------------- | ------------------------------ |
-| `POST` | `/auth/login`  | public | `{ "pin": "1234" }` | `{ token, user: StaffPublic }` |
-| `POST` | `/auth/logout` | staff  | —                   | `204`                          |
-| `GET`  | `/auth/me`     | staff  | —                   | `StaffPublic`                  |
+| Method | Path            | Access | Body / query                   | Response                                 |
+| ------ | --------------- | ------ | ------------------------------ | ---------------------------------------- |
+| `POST` | `/auth/login`   | public | `{ "pin": "1234", branchId? }` | `{ token, user: StaffPublic, branchId }` |
+| `POST` | `/auth/logout`  | staff  | —                              | `204`                                    |
+| `GET`  | `/auth/me`      | staff  | —                              | `StaffPublic`                            |
+| `GET`  | `/auth/session` | staff  | —                              | `{ user: StaffPublic, branchId }`        |
+| `POST` | `/auth/branch`  | staff  | `{ branchId }`                 | `{ branchId }` (moves this session)      |
 
 ```json
 // POST /auth/login → 200
-{ "token": "tok-mfx…", "user": { "id": "staff-admin", "name": "Manager", "role": "admin" } }
+{
+  "token": "tok-mfx…",
+  "user": { "id": "staff-admin", "name": "Manager", "role": "admin" },
+  "branchId": "br-main"
+}
 ```
+
+The session works in one **branch**: the till sends the branch it is set to (`branchId`), or the person's first branch
+is used. Signing in or switching to a branch the person doesn't work at gives `403 WRONG_BRANCH`. With
+`controls.requireClockIn` on, cashiers who haven't clocked in get `403 NOT_CLOCKED_IN`.
+
+### Branches
+
+| Method   | Path            | Access                              | Body                       | Response                                        |
+| -------- | --------------- | ----------------------------------- | -------------------------- | ----------------------------------------------- |
+| `GET`    | `/branches`     | public (the lock screen lists them) | —                          | `Branch[]` (`{ id, name, address, phone }`)     |
+| `POST`   | `/branches`     | manager                             | `{ name, address, phone }` | `201 Branch`                                    |
+| `PATCH`  | `/branches/:id` | manager                             | any of those fields        | `Branch`                                        |
+| `DELETE` | `/branches/:id` | manager                             | —                          | `204`, `409 MAIN_BRANCH` or `409 BRANCH_IN_USE` |
+
+- **Shared by all branches:** settings, staff, categories, products (and prices), customers, exchange rates and
+  promotions.
+- **Kept per branch** (each record has a `branchId`, and requests see only their session's branch): orders, held
+  bills, shifts, kitchen tickets, the floor plan, stock levels, stock movements, the activity log, clock-ins, guest
+  orders and the summary outbox. Records without a `branchId` belong to the first (main) branch.
+- `Product.stock` in responses is the session branch's stock. A backend can store stock per product and branch.
+- Reports, the activity log, the risk report, the daily summary and timesheets take `?branch=`: a branch id, `all` for
+  the whole business, or nothing for the session's branch. `/reports/breakdown?by=branch&branch=all` compares branches.
+- Staff have `branchIds` (empty means every branch) and an `hourlyRate`.
 
 ### Staff
 
 PINs are never returned.
 
-| Method   | Path         | Access  | Body                                                      | Response                                 |
-| -------- | ------------ | ------- | --------------------------------------------------------- | ---------------------------------------- |
-| `GET`    | `/staff`     | manager | —                                                         | `StaffPublic[]`                          |
-| `POST`   | `/staff`     | manager | `{ name, role: "admin" \| "cashier", pin }`               | `201 StaffPublic`                        |
-| `PATCH`  | `/staff/:id` | manager | any of `{ name, role, pin }` (leave `pin` out to keep it) | `StaffPublic`                            |
-| `DELETE` | `/staff/:id` | manager | —                                                         | `204` (also ends that person's sessions) |
+| Method   | Path         | Access  | Body                                                                 | Response                                 |
+| -------- | ------------ | ------- | -------------------------------------------------------------------- | ---------------------------------------- |
+| `GET`    | `/staff`     | manager | —                                                                    | `StaffPublic[]`                          |
+| `POST`   | `/staff`     | manager | `{ name, role: "admin" \| "cashier", pin, branchIds?, hourlyRate? }` | `201 StaffPublic`                        |
+| `PATCH`  | `/staff/:id` | manager | any of `{ name, role, pin }` (leave `pin` out to keep it)            | `StaffPublic`                            |
+| `DELETE` | `/staff/:id` | manager | —                                                                    | `204` (also ends that person's sessions) |
 
 ### Settings
 
@@ -281,7 +321,11 @@ Rules:
 6. `pointsEarned = floor(total × settings.pointsPerUnit)` when a customer is attached.
 7. The server saves the rates in effect on the day of the sale in `exchangeRates`.
 8. Tables: `tableId` puts the table's name on the order, and `heldId` closes that table's bill. Items not yet sent to the
-   kitchen (`qty − sentQty` per line) and `voids` become kitchen tickets.
+   kitchen (`qty − sentQty` per line) and `voids` become kitchen tickets. With `heldVersion` (the bill's `updatedAt`
+   when the till opened it), the sale is refused with `409 BILL_CHANGED` if guests added items to the bill since.
+9. **Promotions** running at the time of the sale, at this branch, are applied by the server and saved in
+   `promotions: [{ id, name, amount }]`, with their total in `promo`. They come off before the manual discounts, and
+   the cashier's discount limit counts manual discounts only.
 
 **Split bill.** There are two ways to split, and neither needs a special endpoint:
 
@@ -329,18 +373,22 @@ Saved bills are shared across tills. A bill with a `tableId` is that table's ope
   shows at the right table.
 - Merging combines identical items, keeps notes and the first customer, and adds up amount discounts (otherwise the
   target bill's discount is kept).
+- `PUT` may send `version`: the bill's `updatedAt` when this till opened it. Guest (QR) orders accepted onto the bill
+  after that are merged back in, so a till saving an older copy never loses them.
 
 ### Floor plan
 
-| Method | Path     | Access  | Body                | Response    |
-| ------ | -------- | ------- | ------------------- | ----------- |
-| `GET`  | `/floor` | staff   | —                   | `FloorPlan` |
-| `PUT`  | `/floor` | manager | `{ areas, tables }` | `FloorPlan` |
+| Method | Path                   | Access  | Body                | Response                                          |
+| ------ | ---------------------- | ------- | ------------------- | ------------------------------------------------- |
+| `GET`  | `/floor`               | staff   | —                   | `FloorPlan` (this branch's)                       |
+| `PUT`  | `/floor`               | manager | `{ areas, tables }` | `FloorPlan`                                       |
+| `POST` | `/floor/tables/:id/qr` | manager | —                   | `DiningTable` with a new `qrToken` (old one dies) |
 
 `FloorPlan`: `areas: [{ id, name }]` and `tables: [{ id, name, areaId, seats, shape, x, y, w, h }]`. `shape` is
 `square`, `round` or `rect`. Positions and sizes are in plan units: each area is **1000 × 640**, tables are 40–600
 wide and high, and the server keeps them inside the plan. Table names must be unique (`400 DUPLICATE_TABLE_NAME`). New
 areas and tables may leave `id` out. Removing a table that has an open bill fails with `409 TABLE_IN_USE`.
+Each table has a `qrToken` for [QR ordering](#qr-self-ordering), set by the server and kept when the plan is saved.
 
 ### Kitchen and bar
 
@@ -422,7 +470,89 @@ cashier can't skip it by changing the app.
   with alerts: `cashShort` / `cashOver` (beyond `controls.cashTolerance`), `manyVoids` (3 or more, or over 3% of sales),
   `highDiscounts` (over 10% of sales), `refunds`, `deletedOrders` and `failedPins` (3 or more).
 - `controls`: `{ discountLimitPct: 10, approveVoids: true, approveCashOut: true, approveReprint: false, blindCount:
-true, cashTolerance: 1 }`, changed with `PATCH /settings`.
+true, cashTolerance: 1, requireClockIn: false }`, changed with `PATCH /settings`.
+- `timeEdited` entries record corrections to clock-ins (see [Time clock](#time-clock)).
+
+### Promotions
+
+| Method   | Path              | Access  | Body                | Response        |
+| -------- | ----------------- | ------- | ------------------- | --------------- |
+| `GET`    | `/promotions`     | staff   | —                   | `Promotion[]`   |
+| `POST`   | `/promotions`     | manager | `Promotion` fields  | `201 Promotion` |
+| `PATCH`  | `/promotions/:id` | manager | any of those fields | `Promotion`     |
+| `DELETE` | `/promotions/:id` | manager | —                   | `204`           |
+
+`Promotion`: `{ id, name, active, kind, percent, buyQty, getQty, minSpend, productIds, categoryIds, days, timeFrom,
+timeTo, dateFrom, dateTo, branchIds }`.
+
+- `kind`: `percentOff` (`percent` off the matching items, e.g. happy hour), `buyXGetY` (in every `buyQty + getQty`
+  matching items, the cheapest `getQty` are free) or `spendOver` (`percent` off when the items come to `minSpend` or
+  more).
+- Matching items: `productIds` and `categoryIds`; both empty means every item.
+- When: `days` (0 = Sunday; empty = every day), `timeFrom`/`timeTo` as `HH:MM` (both or neither; a window like
+  `22:00`–`02:00` runs past midnight), `dateFrom`/`dateTo` as `YYYY-MM-DD`, and `branchIds` (empty = every branch).
+- Each item gets at most one item promotion, the one that saves the most; then the best `spendOver` promotion applies to
+  what is left. The till and the server use the same code: `applyPromotions` in `src/utils/promotions.ts`.
+
+### Time clock
+
+| Method   | Path                | Access                   | Body / query                         | Response                                                        |
+| -------- | ------------------- | ------------------------ | ------------------------------------ | --------------------------------------------------------------- |
+| `POST`   | `/time/clock`       | public (PIN on the till) | `{ pin, branchId? }`                 | `201 { action: "in", entry }` or `200 { action: "out", entry }` |
+| `GET`    | `/time/now`         | staff                    | —                                    | `TimeEntry[]`: who is clocked in here                           |
+| `GET`    | `/time/entries`     | manager                  | `?from=&to=&branch=&staff=`          | `Timesheet`                                                     |
+| `PATCH`  | `/time/entries/:id` | manager                  | any of `{ clockIn, clockOut, note }` | `TimeEntry` (logged as `timeEdited`)                            |
+| `DELETE` | `/time/entries/:id` | manager                  | —                                    | `204` (logged)                                                  |
+
+- `TimeEntry`: `{ id, staffId, staffName, branchId, clockIn, clockOut, editedBy, note }`; `clockOut` is `null` while
+  the person is working. The same PIN clocks in, then out.
+- `Timesheet`: `{ entries, rows: [{ staffId, staffName, hours, cost, shifts }], totalHours, totalCost, sales }`. Only
+  the part of each entry inside the period counts, open entries count up to now, and `cost = hours × hourlyRate`.
+  `sales` is the period's sales, for labour as a share of sales.
+
+### QR self-ordering
+
+Guests scan the QR code on their table, which opens `/order/<qrToken>` in the app. That page uses only the public
+endpoints below; staff accept or turn down each order unless `settings.selfOrder.autoAccept` is on.
+
+| Method | Path                      | Access | Body / query                                                 | Response                                              |
+| ------ | ------------------------- | ------ | ------------------------------------------------------------ | ----------------------------------------------------- |
+| `GET`  | `/public/menu`            | public | `?table=<qrToken>`                                           | `PublicMenu`: store, branch, table, categories, items |
+| `POST` | `/public/orders`          | public | `SelfOrderRequest`                                           | `201 GuestOrder`                                      |
+| `GET`  | `/public/orders`          | public | `?table=<qrToken>&ids=a,b`                                   | `GuestOrder[]` (the phone remembers its order ids)    |
+| `GET`  | `/self-orders`            | staff  | `?status=pending` (default), `accepted`, `rejected` or `all` | `SelfOrder[]`, newest first                           |
+| `POST` | `/self-orders/:id/accept` | staff  | —                                                            | `{ order: SelfOrder, held: HeldOrder }`               |
+| `POST` | `/self-orders/:id/reject` | staff  | `{ reason }`                                                 | `SelfOrder`                                           |
+
+```json
+// POST /public/orders
+{
+  "table": "k7m2p9q4xw3n",
+  "id": "mfx9a1b2",
+  "lines": [
+    {
+      "productId": "prd-4",
+      "qty": 1,
+      "options": [{ "group": "Size", "name": "Large" }],
+      "note": ""
+    }
+  ],
+  "note": "",
+  "guestName": "Mai",
+  "language": "lo"
+}
+```
+
+- The QR token is the only key: it finds the table and its branch. Treat it like a password (long and random), and
+  replace it with `POST /floor/tables/:id/qr` if a code is copied. `settings.selfOrder.enabled: false` turns ordering
+  off (`403 SELF_ORDER_OFF`).
+- The menu shows active items with their options and `soldOut`, never costs, stock levels, SKUs or barcodes.
+- Guests choose items, options and notes only. The server prices the order, checks stock, ignores any discounts, and
+  allows at most 5 waiting orders per table (`429 TOO_MANY_ORDERS`). `id` makes retries safe, as at checkout.
+- **Accepting** adds the items to the table's open bill (or opens one), marks them as sent, and makes kitchen tickets
+  with the guest's name and note. The bill is paid at the till as usual, so promotions, tax and service apply then.
+- `reason` is shown on the guest's phone. The app offers quick reasons written in the guest's `language`.
+- `settings.selfOrder`: `{ enabled: true, autoAccept: false }`.
 
 ### Daily summary
 
@@ -433,7 +563,8 @@ true, cashTolerance: 1 }`, changed with `PATCH /settings`.
 | `POST` | `/summary/send`          | manager | `{ date }`         | `201 OutboxEntry` (queue it now)                            |
 
 - `DailySummary`: sales, orders, average, items, the same weekday last week, payments by method, the top 5 items,
-  each shift's cash result, discounts, removed items, refunds, cash out, and the risk alerts for the day.
+  each shift's cash result, discounts, removed items, refunds, cash out, the risk alerts for the day, and
+  `labour: { hours, cost }` from the clock-ins.
 - `dailySummary` settings: `{ enabled, sendAt: "shiftClose" | "time", time: "22:00", language, telegram, whatsapp, email }`
   (recipients comma-separated).
 - **Sending is the backend's job.** The mock only queues entries: when a shift closes (`sendAt: "shiftClose"`), or the
@@ -445,12 +576,12 @@ true, cashTolerance: 1 }`, changed with `PATCH /settings`.
 
 All take `?from=&to=` (epoch ms, `to` exclusive). The app sends the shop's local day boundaries.
 
-| Method | Path                     | Extra query                              | Response                                                                            |
-| ------ | ------------------------ | ---------------------------------------- | ----------------------------------------------------------------------------------- |
-| `GET`  | `/reports/summary`       | —                                        | `{ net, orders, avg, items, tax, discounts, profit, margin, refunds, refundCount }` |
-| `GET`  | `/reports/sales-by-time` | `bucket=hour\|day`, `tz=Asia/Vientiane`  | `[{ start, label, value, count }]` (hours 6–22, or one per day)                     |
-| `GET`  | `/reports/products`      | `limit=100`                              | `[{ productId, name, emoji, qty, revenue }]`                                        |
-| `GET`  | `/reports/breakdown`     | `by=payment\|category\|orderType\|staff` | `[{ key, value, pct }]`                                                             |
+| Method | Path                     | Extra query                                      | Response                                                                            |
+| ------ | ------------------------ | ------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| `GET`  | `/reports/summary`       | —                                                | `{ net, orders, avg, items, tax, discounts, profit, margin, refunds, refundCount }` |
+| `GET`  | `/reports/sales-by-time` | `bucket=hour\|day`, `tz=Asia/Vientiane`          | `[{ start, label, value, count }]` (hours 6–22, or one per day)                     |
+| `GET`  | `/reports/products`      | `limit=100`                                      | `[{ productId, name, emoji, qty, revenue }]`                                        |
+| `GET`  | `/reports/breakdown`     | `by=payment\|category\|orderType\|staff\|branch` | `[{ key, value, pct }]`                                                             |
 
 `profit` is an estimate: revenue before tax and service, minus each product's current `cost`.
 
@@ -509,13 +640,13 @@ Rules:
 
 ### Backup and admin (manager)
 
-| Method | Path           | Body                                                                | Response                                                                                                                                                                                   |
-| ------ | -------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GET`  | `/backup`      | —                                                                   | `{ app: "sun-pos", version: 2, at, data: { settings, staff, categories, products, stockMoves, customers, orders, shifts, held, exchangeRates, floor, stations, tickets, audit, outbox } }` |
-| `POST` | `/backup`      | A backup file (version 1 files from the browser-only app also work) | `204`                                                                                                                                                                                      |
-| `POST` | `/admin/reset` | `{ scope: "sales" \| "demo" \| "all" }`                             | `204`                                                                                                                                                                                      |
+| Method | Path           | Body                                                                | Response                                                                                                                                                                                                                                   |
+| ------ | -------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET`  | `/backup`      | —                                                                   | `{ app: "sun-pos", version: 2, at, data: { settings, staff, categories, products, stockMoves, customers, orders, shifts, held, exchangeRates, branches, floors, promotions, timeEntries, selfOrders, stations, tickets, audit, outbox } }` |
+| `POST` | `/backup`      | A backup file (version 1 files from the browser-only app also work) | `204`                                                                                                                                                                                                                                      |
+| `POST` | `/admin/reset` | `{ scope: "sales" \| "demo" \| "all" }`                             | `204`                                                                                                                                                                                                                                      |
 
-`sales` clears orders, shifts, held orders, kitchen tickets, the activity log, the summary outbox and stock movements. `demo` does the same, then loads the demo sales. `all`
+`sales` clears orders, shifts, held orders, kitchen tickets, the activity log, the summary outbox, stock movements, clock-ins and guest orders. `demo` does the same, then loads the demo sales and clock-ins. `all`
 restores all the seed data. Exchange rates are kept, except by `all`. A real backend may want to restrict or remove `/admin/reset` in production.
 
 ---
@@ -533,26 +664,29 @@ restores all the seed data. Exchange rates are kept, except by `all`. A real bac
 6. **Check it with the contract tests.** [`src/__tests__/api.spec.ts`](../src/__tests__/api.spec.ts) runs these
    scenarios against the mock: sign-in and roles, server-side pricing, options, retries, stock, payments, loyalty
    points, refunds, cash-up, reports, exchange rates, split payments, tables, kitchen tickets, manager approvals,
-   the activity log, blind counts, the risk report and the daily summary. Run the same requests against your backend and compare.
+   the activity log, blind counts, the risk report, the daily summary, branches, promotions, the time clock and QR
+   ordering. Run the same requests against your backend and compare.
 7. **Switch the app over** with `VITE_API_PROXY` (development) or `VITE_API_URL` (production).
 
 ## Frontend reference
 
 The screens use the Pinia stores. Each store keeps a cached copy of its data and calls the API through `src/api`.
 
-| Store               | Main functions                                                                                                                                                          | Endpoints used                               |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| `useAuthStore`      | `init`, `login`, `logout`, `loadStaff`, `saveStaff`, `removeStaff`                                                                                                      | `/auth/*`, `/staff`                          |
-| `useSettingsStore`  | `load`, `save`, `money`, `round`, `toggleTheme` (theme stays on the device)                                                                                             | `/settings`                                  |
-| `useCatalogStore`   | `load`, `refreshProducts`, `findByCode`, `saveProduct`, `removeProduct`, `saveCategory`, `removeCategory`, `adjustStock`, `loadMoves`                                   | `/categories`, `/products`, `/stock/*`       |
-| `useCartStore`      | `add`, `setQty`, `remove`, `discard`, `hold`, `resume`, `openTable`, `setTable`, `send`, `mergeHeld`, `selectionTotals`, `checkout(payments, { selection, splitWays })` | `/held-orders/*`, `/tickets`, `POST /orders` |
-| `useFloorStore`     | `load`, `save`                                                                                                                                                          | `/floor`                                     |
-| `useKitchenStore`   | `load`, `watch` (refreshes every 5 s), `setStatus`, `toggleItem`                                                                                                        | `/tickets`                                   |
-| `useRatesStore`     | `load`, `loadHistory`, `save`, `remove`                                                                                                                                 | `/exchange-rates/*`                          |
-| `useOrdersStore`    | `loadTopSellers`, `refund`                                                                                                                                              | `/orders/top-sellers`, `/orders/:id/refund`  |
-| `useCustomersStore` | `load`, `search`, `save`, `remove`, `refresh`                                                                                                                           | `/customers`                                 |
-| `useShiftStore`     | `load`, `open`, `moveCash`, `close`                                                                                                                                     | `/shifts/*`                                  |
-| `useAppStore`       | `load` (everything needed after sign-in)                                                                                                                                | several                                      |
+| Store                | Main functions                                                                                                                                                            | Endpoints used                               |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `useAuthStore`       | `init`, `login`, `logout`, `loadStaff`, `saveStaff`, `removeStaff`, `loadBranches`, `switchBranch`, `saveBranch`, `removeBranch`                                          | `/auth/*`, `/staff`, `/branches`             |
+| `useSettingsStore`   | `load`, `save`, `money`, `round`, `toggleTheme` (theme stays on the device)                                                                                               | `/settings`                                  |
+| `useCatalogStore`    | `load`, `refreshProducts`, `findByCode`, `saveProduct`, `removeProduct`, `saveCategory`, `removeCategory`, `adjustStock`, `loadMoves`, `savePromotion`, `removePromotion` | `/categories`, `/products`, `/stock/*`       |
+| `useCartStore`       | `add`, `setQty`, `remove`, `discard`, `hold`, `resume`, `openTable`, `setTable`, `send`, `mergeHeld`, `selectionTotals`, `checkout(payments, { selection, splitWays })`   | `/held-orders/*`, `/tickets`, `POST /orders` |
+| `useFloorStore`      | `load`, `save`                                                                                                                                                            | `/floor`                                     |
+| `useKitchenStore`    | `load`, `watch` (refreshes every 5 s), `setStatus`, `toggleItem`                                                                                                          | `/tickets`                                   |
+| `useSelfOrdersStore` | `start` (checks every 10 s while signed in), `accept`, `reject`                                                                                                           | `/self-orders/*`                             |
+| `useRatesStore`      | `load`, `loadHistory`, `save`, `remove`                                                                                                                                   | `/exchange-rates/*`                          |
+| `useOrdersStore`     | `loadTopSellers`, `refund`                                                                                                                                                | `/orders/top-sellers`, `/orders/:id/refund`  |
+| `useCustomersStore`  | `load`, `search`, `save`, `remove`, `refresh`                                                                                                                             | `/customers`                                 |
+| `useShiftStore`      | `load`, `open`, `moveCash`, `close`                                                                                                                                       | `/shifts/*`                                  |
+| `useAppStore`        | `load` (everything needed after sign-in)                                                                                                                                  | several                                      |
 
-The Orders, Reports, Shift history, customer history and Import screens call `api.*` directly.
+The Orders, Reports, Shift history, customer history, Timesheets, QR codes, Import and guest ordering screens call
+`api.*` directly.
 File reading, column matching and templates for the import are in `src/utils/importer.ts`.

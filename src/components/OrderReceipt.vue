@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { fmtDay, fmtFull, t } from '@/i18n'
 import { useSettingsStore } from '@/stores/settings'
 import { useCustomersStore } from '@/stores/customers'
+import { useAuthStore } from '@/stores/auth'
 import { lineTotal } from '@/utils/pos'
 import { convert, ratePair } from '@/utils/rates'
 import type { Order } from '@/types'
@@ -25,6 +26,16 @@ const rates = computed(() => {
   }
 })
 
+// With several branches, the receipt names the branch and uses its address and phone.
+const auth = useAuthStore()
+const branch = computed(() =>
+  auth.multiBranch
+    ? auth.branches.find((b) => b.id === (props.order.branchId ?? auth.branches[0]?.id))
+    : undefined,
+)
+const address = computed(() => branch.value?.address || settings.s.address)
+const phone = computed(() => branch.value?.phone || settings.s.phone)
+
 const customer = computed(() =>
   props.order.customerId ? customers.byId.get(props.order.customerId) : undefined,
 )
@@ -36,8 +47,9 @@ const customer = computed(() =>
   >
     <div class="text-center">
       <p class="text-base font-bold">{{ settings.s.storeName }}</p>
-      <p v-if="settings.s.address">{{ settings.s.address }}</p>
-      <p v-if="settings.s.phone">{{ settings.s.phone }}</p>
+      <p v-if="branch" class="font-bold">{{ branch.name }}</p>
+      <p v-if="address">{{ address }}</p>
+      <p v-if="phone">{{ phone }}</p>
     </div>
     <div class="my-2 border-t border-dashed border-neutral-400" />
     <div class="flex justify-between">
@@ -71,6 +83,10 @@ const customer = computed(() =>
     <div class="flex justify-between">
       <span>{{ t('receipt.subtotal') }}</span
       ><span>{{ settings.money(order.subtotal) }}</span>
+    </div>
+    <div v-for="p in order.promotions ?? []" :key="p.id" class="flex justify-between gap-2">
+      <span>{{ p.name }}</span
+      ><span class="shrink-0">−{{ settings.money(p.amount) }}</span>
     </div>
     <div v-if="order.discount" class="flex justify-between">
       <span>{{ t('cart.discount') }}</span
